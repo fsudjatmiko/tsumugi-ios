@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 struct ContentView: View {
@@ -11,13 +12,10 @@ struct ContentView: View {
                 Label("Learn", systemImage: "chart.bar.fill")
             }
 
-            NavigationStack {
-                Text("Study Session")
-                    .navigationTitle("Study")
-            }
-            .tabItem {
-                Label("Study", systemImage: "rectangle.portrait.on.rectangle.portrait.fill")
-            }
+            StudySessionView()
+                .tabItem {
+                    Label("Study", systemImage: "rectangle.portrait.on.rectangle.portrait.fill")
+                }
 
             NavigationStack {
                 Text("Spatial Lab")
@@ -35,10 +33,11 @@ struct ContentView: View {
                 Label("Chat", systemImage: "bubble.left.and.text.bubble.right.fill")
             }
         }
-        .tint(.primary)
+        .tint(Color.tsumugiDustyDenim)
     }
 }
 
 #Preview {
     ContentView()
+        .modelContainer(PreviewContainer.shared)
 }
