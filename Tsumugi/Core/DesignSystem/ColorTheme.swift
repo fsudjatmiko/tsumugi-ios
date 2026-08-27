@@ -1,6 +1,6 @@
 import SwiftUI
 
-extension Color {
+public extension Color {
     // Exact Custom Palette
     static let tsumugiDustyDenim = Color(hex: 0x6290C3)
     static let tsumugiFrozenWater = Color(hex: 0xC2E7DA)

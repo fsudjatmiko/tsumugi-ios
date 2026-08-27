@@ -20,14 +20,11 @@ struct ContentView: View {
                 }
                 .tag(1)
 
-            NavigationStack {
-                Text("Spatial Lab")
-                    .navigationTitle("Spatial")
-            }
-            .tabItem {
-                Label("Spatial", systemImage: "arkit")
-            }
-            .tag(2)
+            SpatialLabView()
+                .tabItem {
+                    Label("Spatial", systemImage: "arkit")
+                }
+                .tag(2)
 
             NavigationStack {
                 Text("Chat Partner")
