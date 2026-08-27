@@ -16,24 +16,21 @@ struct ContentView: View {
 
             StudySessionView()
                 .tabItem {
-                    Label("Study", systemImage: "rectangle.portrait.on.rectangle.portrait.fill")
+                    Label("Study", systemImage: "rectangle.portrait.on.rectangle.portrait.angled.fill")
                 }
                 .tag(1)
 
             SpatialLabView()
                 .tabItem {
-                    Label("Spatial", systemImage: "arkit")
+                    Label("Spatial", systemImage: "cube.transparent.fill")
                 }
                 .tag(2)
 
-            NavigationStack {
-                Text("Chat Partner")
-                    .navigationTitle("Chat")
-            }
-            .tabItem {
-                Label("Chat", systemImage: "bubble.left.and.text.bubble.right.fill")
-            }
-            .tag(3)
+            ChatPracticeView()
+                .tabItem {
+                    Label("Chat", systemImage: "bubble.left.and.bubble.right.fill")
+                }
+                .tag(3)
         }
         .tint(Color.tsumugiDustyDenim)
     }

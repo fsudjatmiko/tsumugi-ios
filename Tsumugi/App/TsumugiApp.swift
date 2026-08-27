@@ -8,7 +8,8 @@ struct TsumugiApp: App {
     init() {
         let schema = Schema([
             CharacterCard.self,
-            ReviewLog.self
+            ReviewLog.self,
+            ChatMessage.self
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
