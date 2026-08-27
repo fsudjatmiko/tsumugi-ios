@@ -1,0 +1,42 @@
+[
+  {
+    "id": "hira_a",
+    "character": "あ",
+    "romaji": "a",
+    "primaryMeaning": "a (vowel)",
+    "category": "hiragana",
+    "strokeCount": 3
+  },
+  {
+    "id": "hira_i",
+    "character": "い",
+    "romaji": "i",
+    "primaryMeaning": "i (vowel)",
+    "category": "hiragana",
+    "strokeCount": 2
+  },
+  {
+    "id": "hira_u",
+    "character": "う",
+    "romaji": "u",
+    "primaryMeaning": "u (vowel)",
+    "category": "hiragana",
+    "strokeCount": 2
+  },
+  {
+    "id": "hira_e",
+    "character": "え",
+    "romaji": "e",
+    "primaryMeaning": "e (vowel)",
+    "category": "hiragana",
+    "strokeCount": 2
+  },
+  {
+    "id": "hira_o",
+    "character": "お",
+    "romaji": "o",
+    "primaryMeaning": "o (vowel)",
+    "category": "hiragana",
+    "strokeCount": 3
+  }
+]
