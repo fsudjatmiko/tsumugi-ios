@@ -49,7 +49,7 @@ public struct FuriganaText: View {
 
                     Text(segment.text)
                         .font(.system(size: baseFontSize, weight: .medium))
-                        .foregroundStyle(Color.tsumugiSpaceIndigo)
+                        .foregroundStyle(Color.tsumugiTextPrimary)
                 }
             }
         }

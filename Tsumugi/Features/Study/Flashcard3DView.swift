@@ -46,7 +46,7 @@ struct Flashcard3DView: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
                     .background(Color.tsumugiFrozenWater.opacity(0.35))
-                    .foregroundStyle(Color.tsumugiSpaceIndigo)
+                    .foregroundStyle(Color.tsumugiTextPrimary)
                     .clipShape(Capsule())
 
                 Spacer()
@@ -68,7 +68,7 @@ struct Flashcard3DView: View {
 
             Text(card.character)
                 .font(.system(size: 84, weight: .medium, design: .serif))
-                .foregroundStyle(Color.tsumugiSpaceIndigo)
+                .foregroundStyle(Color.tsumugiTextPrimary)
                 .minimumScaleFactor(0.5)
                 .lineLimit(1)
 
@@ -89,7 +89,7 @@ struct Flashcard3DView: View {
                 .fill(Color.tsumugiCardSurface)
                 .overlay(
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(Color.tsumugiFrozenWater.opacity(0.5), lineWidth: 1)
+                        .stroke(Color.tsumugiCardBorder, lineWidth: 1)
                 )
         )
     }
@@ -126,11 +126,12 @@ struct Flashcard3DView: View {
 
             Text(card.primaryMeaning)
                 .font(.headline)
-                .foregroundStyle(Color.tsumugiSpaceIndigo)
+                .foregroundStyle(Color.tsumugiTextPrimary)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
 
             Divider()
+                .overlay(Color.tsumugiCardBorder)
                 .padding(.horizontal, 20)
 
             HStack(spacing: 24) {
@@ -141,7 +142,7 @@ struct Flashcard3DView: View {
                     Text("\(card.strokeCount)")
                         .font(.subheadline)
                         .fontWeight(.semibold)
-                        .foregroundStyle(Color.tsumugiSpaceIndigo)
+                        .foregroundStyle(Color.tsumugiTextPrimary)
                 }
 
                 VStack(spacing: 4) {
@@ -151,7 +152,7 @@ struct Flashcard3DView: View {
                     Text(card.interval == 0 ? "New" : "\(card.interval)d")
                         .font(.subheadline)
                         .fontWeight(.semibold)
-                        .foregroundStyle(Color.tsumugiSpaceIndigo)
+                        .foregroundStyle(Color.tsumugiTextPrimary)
                 }
 
                 VStack(spacing: 4) {
@@ -161,7 +162,7 @@ struct Flashcard3DView: View {
                     Text(String(format: "%.1f", card.easeFactor))
                         .font(.subheadline)
                         .fontWeight(.semibold)
-                        .foregroundStyle(Color.tsumugiSpaceIndigo)
+                        .foregroundStyle(Color.tsumugiTextPrimary)
                 }
             }
 
@@ -182,7 +183,7 @@ struct Flashcard3DView: View {
                 .fill(Color.tsumugiCardSurface)
                 .overlay(
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(Color.tsumugiFrozenWater.opacity(0.5), lineWidth: 1)
+                        .stroke(Color.tsumugiCardBorder, lineWidth: 1)
                 )
         )
     }

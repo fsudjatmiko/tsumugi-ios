@@ -41,7 +41,7 @@ struct CategoryRoadmapCard: View {
         } label: {
             Label(category.displayName, systemImage: iconName)
                 .font(.headline)
-                .foregroundStyle(Color.tsumugiSpaceIndigo)
+                .foregroundStyle(Color.tsumugiTextPrimary)
         }
         .groupBoxStyle(.automatic)
     }
@@ -79,7 +79,7 @@ struct CategoryRoadmapCard: View {
                 Text("\(Int(progressFraction * 100))%")
                     .font(.caption2)
                     .fontWeight(.bold)
-                    .foregroundStyle(Color.tsumugiSpaceIndigo)
+                    .foregroundStyle(Color.tsumugiTextPrimary)
             }
         }
     }

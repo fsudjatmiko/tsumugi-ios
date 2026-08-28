@@ -6,9 +6,14 @@ struct ContentView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            DashboardView(onSelectStudyTab: {
-                selectedTab = 1
-            })
+            DashboardView(
+                onSelectStudyTab: {
+                    selectedTab = 1
+                },
+                onSelectSpatialTab: {
+                    selectedTab = 2
+                }
+            )
             .tabItem {
                 Label("Learn", systemImage: "chart.bar.fill")
             }
@@ -39,4 +44,5 @@ struct ContentView: View {
 #Preview {
     ContentView()
         .modelContainer(PreviewContainer.shared)
+        .preferredColorScheme(.light)
 }

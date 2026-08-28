@@ -14,7 +14,24 @@ public extension Color {
     })
     
     static let tsumugiCardSurface = Color(uiColor: UIColor { trait in
-        trait.userInterfaceStyle == .dark ? UIColor(Color.tsumugiSpaceIndigo.opacity(0.6)) : UIColor(Color.tsumugiFrozenWater.opacity(0.35))
+        trait.userInterfaceStyle == .dark ? UIColor(Color.tsumugiSpaceIndigo.opacity(0.85)) : UIColor.secondarySystemGroupedBackground
+    })
+
+    // Dynamic Text & Typography Tokens
+    static let tsumugiTextPrimary = Color(uiColor: UIColor { trait in
+        trait.userInterfaceStyle == .dark ? .white : UIColor(Color.tsumugiSpaceIndigo)
+    })
+
+    static let tsumugiTextSecondary = Color(uiColor: UIColor { trait in
+        trait.userInterfaceStyle == .dark ? UIColor.systemGray2 : UIColor(Color.tsumugiSpaceIndigo.opacity(0.7))
+    })
+
+    static let tsumugiSectionHeader = Color(uiColor: UIColor { trait in
+        trait.userInterfaceStyle == .dark ? UIColor(Color.tsumugiDustyDenim) : UIColor(Color.tsumugiSpaceIndigo)
+    })
+
+    static let tsumugiCardBorder = Color(uiColor: UIColor { trait in
+        trait.userInterfaceStyle == .dark ? UIColor.white.withAlphaComponent(0.12) : UIColor(Color.tsumugiFrozenWater).withAlphaComponent(0.5)
     })
 
     // Hex Initializer Helper

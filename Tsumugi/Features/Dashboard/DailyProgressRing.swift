@@ -16,7 +16,7 @@ struct DailyProgressRing: View {
             // Track circle
             Circle()
                 .stroke(
-                    Color.tsumugiFrozenWater.opacity(0.4),
+                    Color.tsumugiFrozenWater.opacity(0.3),
                     style: StrokeStyle(lineWidth: 10, lineCap: .round)
                 )
 
@@ -35,7 +35,7 @@ struct DailyProgressRing: View {
                 Text("\(completedToday)")
                     .font(.title2)
                     .fontWeight(.bold)
-                    .foregroundStyle(Color.tsumugiSpaceIndigo)
+                    .foregroundStyle(Color.tsumugiTextPrimary)
 
                 Text("/ \(targetGoal)")
                     .font(.caption2)
