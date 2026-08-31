@@ -34,10 +34,6 @@ public final class SeedDataLoader: Sendable {
     public init() {}
 
     /// Preloads seed data asynchronously from bundled JSON resources if the database table is currently empty.
-    ///
-    /// - Parameters:
-    ///   - context: The active `ModelContext` to check and insert into.
-    ///   - bundle: The `Bundle` containing resource JSON files (defaults to `Bundle.main`).
     @MainActor
     public func preloadSeedDataIfNeeded(
         context: ModelContext,
@@ -115,5 +111,67 @@ public final class SeedDataLoader: Sendable {
         } catch {
             print("⚠️ [SeedDataLoader] Failed to save preloaded seed items: \(error)")
         }
+    }
+
+    /// Unlocks the next tier/row of characters into the user's active study deck.
+    @MainActor
+    public func unlockNextTier(context: ModelContext) -> Int {
+        // Find locked cards in the database first
+        let lockedDescriptor = FetchDescriptor<CharacterCard>(
+            predicate: #Predicate<CharacterCard> { card in
+                !card.isUnlocked
+            }
+        )
+
+        if let lockedCards = try? context.fetch(lockedDescriptor), !lockedCards.isEmpty {
+            let batch = Array(lockedCards.prefix(5))
+            for card in batch {
+                card.isUnlocked = true
+                card.nextReviewDate = Date.now
+            }
+            try? context.save()
+            return batch.count
+        }
+
+        // If no locked cards exist, insert the next canonical Hiragana row (K-Row: か, き, く, け, こ)
+        let kRowCards: [(id: String, char: String, romaji: String, meaning: String, cat: WritingCategory, strokes: Int)] = [
+            ("hira_ka", "か", "ka", "ka (syllable)", .hiragana, 3),
+            ("hira_ki", "き", "ki", "ki (syllable)", .hiragana, 4),
+            ("hira_ku", "く", "ku", "ku (syllable)", .hiragana, 1),
+            ("hira_ke", "け", "ke", "ke (syllable)", .hiragana, 3),
+            ("hira_ko", "こ", "ko", "ko (syllable)", .hiragana, 2)
+        ]
+
+        var newCount = 0
+        for item in kRowCards {
+            let targetId = item.id
+            let existingDescriptor = FetchDescriptor<CharacterCard>(
+                predicate: #Predicate<CharacterCard> { card in
+                    card.id == targetId
+                }
+            )
+            let exists = ((try? context.fetchCount(existingDescriptor)) ?? 0) > 0
+
+            if !exists {
+                let newCard = CharacterCard(
+                    id: item.id,
+                    character: item.char,
+                    romaji: item.romaji,
+                    primaryMeaning: item.meaning,
+                    category: item.cat,
+                    strokeCount: item.strokes,
+                    interval: 0,
+                    repetitions: 0,
+                    easeFactor: 2.5,
+                    nextReviewDate: Date.now,
+                    isUnlocked: true
+                )
+                context.insert(newCard)
+                newCount += 1
+            }
+        }
+
+        try? context.save()
+        return newCount
     }
 }

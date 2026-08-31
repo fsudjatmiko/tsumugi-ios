@@ -15,25 +15,25 @@ struct ContentView: View {
                 }
             )
             .tabItem {
-                Label("Learn", systemImage: "chart.bar.fill")
+                Label("Learn", systemImage: "book.fill")
             }
             .tag(0)
 
             StudySessionView()
                 .tabItem {
-                    Label("Study", systemImage: "rectangle.portrait.on.rectangle.portrait.angled.fill")
+                    Label("Review", systemImage: "rectangle.stack.fill")
                 }
                 .tag(1)
 
             SpatialLabView()
                 .tabItem {
-                    Label("Spatial", systemImage: "cube.transparent.fill")
+                    Label("Spatial Lab", systemImage: "cube.transparent")
                 }
                 .tag(2)
 
             ChatPracticeView()
                 .tabItem {
-                    Label("Chat", systemImage: "bubble.left.and.bubble.right.fill")
+                    Label("Practice", systemImage: "bubble.left.and.bubble.right.fill")
                 }
                 .tag(3)
         }

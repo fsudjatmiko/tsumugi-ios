@@ -9,6 +9,8 @@ struct DashboardView: View {
     @Query(sort: \ReviewLog.timestamp, order: .reverse)
     private var allLogs: [ReviewLog]
 
+    @State private var showProfile: Bool = false
+
     let onSelectStudyTab: (() -> Void)?
     let onSelectSpatialTab: (() -> Void)?
 
@@ -64,6 +66,22 @@ struct DashboardView: View {
             }
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("Learn")
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showProfile = true
+                    } label: {
+                        Image(systemName: "person.crop.circle")
+                            .font(.title3)
+                            .foregroundStyle(Color.tsumugiDustyDenim)
+                    }
+                    .accessibilityLabel("User Profile & Settings")
+                }
+            }
+            .sheet(isPresented: $showProfile) {
+                ProfileView()
+            }
             .refreshable {
                 // SwiftData @Query updates automatically; triggers smooth haptic refresh
             }

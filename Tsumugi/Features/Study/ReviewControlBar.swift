@@ -1,48 +1,77 @@
 import SwiftData
 import SwiftUI
 
-/// Control bar providing SM-2 review rating actions with native haptic sensory feedback.
+/// Control bar providing SM-2 review rating actions with recommended badge indicator and native haptic feedback.
 struct ReviewControlBar: View {
     let card: CharacterCard
     let srsEngine: SRSEngine
+    var suggestedGrade: SRSGrade? = nil
     let onGraded: (SRSGrade) -> Void
 
     @Environment(\.modelContext) private var modelContext
     @State private var feedbackTrigger: Int = 0
 
     var body: some View {
-        HStack(spacing: 10) {
-            gradeButton(grade: .again, tint: .red)
-            gradeButton(grade: .hard, tint: .orange)
-            gradeButton(grade: .good, tint: Color.tsumugiDustyDenim)
-            gradeButton(grade: .easy, tint: .green)
+        VStack(spacing: 8) {
+            if let suggested = suggestedGrade {
+                HStack(spacing: 4) {
+                    Image(systemName: "sparkles")
+                        .font(.caption2)
+                    Text("Suggested Grade: \(suggested.label)")
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                }
+                .foregroundStyle(Color.tsumugiDustyDenim)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Color.tsumugiDustyDenim.opacity(0.12))
+                .clipShape(Capsule())
+            }
+
+            HStack(spacing: 8) {
+                ForEach(SRSGrade.allCases) { grade in
+                    gradeButton(grade: grade)
+                }
+            }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 16)
         .sensoryFeedback(.impact, trigger: feedbackTrigger)
     }
 
     // MARK: - Button ViewBuilder
 
     @ViewBuilder
-    private func gradeButton(grade: SRSGrade, tint: Color) -> some View {
+    private func gradeButton(grade: SRSGrade) -> some View {
+        let isSuggested = suggestedGrade == grade
+
         Button {
             applyGrade(grade)
         } label: {
-            VStack(spacing: 2) {
+            VStack(spacing: 3) {
+                Image(systemName: grade.iconName)
+                    .font(.footnote)
+                    .fontWeight(.bold)
+
                 Text(grade.label)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
+                    .font(.caption)
+                    .fontWeight(isSuggested ? .bold : .semibold)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
 
                 Text(previewInterval(for: grade))
                     .font(.caption2)
-                    .opacity(0.8)
+                    .opacity(0.85)
             }
             .frame(maxWidth: .infinity)
-            .frame(minHeight: 44)
+            .padding(.vertical, 4)
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .tint(tint)
+        .buttonStyle(.bordered)
+        .controlSize(.regular)
+        .tint(grade.tint)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(isSuggested ? grade.tint : Color.clear, lineWidth: 2)
+        )
     }
 
     // MARK: - Helpers
@@ -79,6 +108,7 @@ struct ReviewControlBar: View {
     return ReviewControlBar(
         card: mockCard,
         srsEngine: SRSEngine(),
+        suggestedGrade: .good,
         onGraded: { _ in }
     )
     .padding()

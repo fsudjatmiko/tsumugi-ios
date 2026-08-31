@@ -13,7 +13,7 @@ public final class ReviewLog {
 
     public var grade: SRSGrade {
         get {
-            SRSGrade(rawValue: gradeRaw) ?? .again
+            SRSGrade(rawValue: gradeRaw) ?? .forgot
         }
         set {
             gradeRaw = newValue.rawValue
