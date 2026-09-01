@@ -67,10 +67,11 @@ struct StrokeCanvasView: View {
                 // Faint center crosshair guidelines
                 guidelineGrid(size: size)
 
-                // Faint background character template (subtle 0.1 opacity)
+                // Faint background character template (subtle 0.10 opacity)
                 Text(character)
                     .font(.system(size: min(size.width, size.height) * 0.58, weight: .light, design: .serif))
                     .foregroundStyle(Color.tsumugiTextSecondary.opacity(0.10))
+                    .frame(width: size.width, height: size.height, alignment: .center)
                     .allowsHitTesting(false)
 
                 // Next expected stroke start indicator (green dot & number)
@@ -186,15 +187,16 @@ struct StrokeCanvasView: View {
     // MARK: - Next Stroke Start Marker
 
     private func currentStrokeStartMarker(segment: StrokeSegment, canvasSize: CGSize) -> some View {
-        let startX = segment.startPoint.x * canvasSize.width
-        let startY = segment.startPoint.y * canvasSize.height
+        let targetPoint = CGPoint(
+            x: segment.startPoint.x * canvasSize.width,
+            y: segment.startPoint.y * canvasSize.height
+        )
 
         return ZStack {
             // Faint pulse ring
             Circle()
                 .stroke(Color.tsumugiChartreuse.opacity(0.6), lineWidth: 2)
                 .frame(width: 26, height: 26)
-                .position(x: startX, y: startY)
 
             // Numbered start badge
             ZStack {
@@ -205,8 +207,9 @@ struct StrokeCanvasView: View {
                     .foregroundStyle(Color.tsumugiSpaceIndigo)
             }
             .frame(width: 18, height: 18)
-            .position(x: startX, y: startY)
         }
+        .position(targetPoint)
+        .allowsHitTesting(false)
     }
 
     // MARK: - Guideline Grid
@@ -308,6 +311,23 @@ struct StrokeCanvasView: View {
                         .stroke(Color.green.opacity(0.35), lineWidth: 1)
                 )
         )
+    }
+
+    /// Auto-completes and reveals full stroke sequence for users requesting a pass
+    public func completeAndReveal() {
+        // Synthesize idealized stroke points from the guide
+        var allStrokes: [[CGPoint]] = []
+        for stroke in strokeGuide.strokes {
+            let pts = stroke.allPoints.map { CGPoint(x: $0.x * 200, y: $0.y * 240) }
+            allStrokes.append(pts)
+        }
+        completedStrokes = allStrokes
+        currentStrokeIndex = strokeGuide.strokes.count
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+            isCharacterCompleted = true
+        }
+        audioService?.speak(character)
+        onCompletion?(max(1, retryCount))
     }
 
     public func undoLastStroke() {

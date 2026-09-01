@@ -4,7 +4,7 @@ import SwiftUI
 /// Section displaying mastery breakdown cards for Hiragana, Katakana, and Kanji with mini progress rings.
 struct CategoryDeckSection: View {
     let cards: [CharacterCard]
-    let onSelectCategory: (WritingCategory) -> Void
+    var onSelectCategory: ((WritingCategory) -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -18,7 +18,10 @@ struct CategoryDeckSection: View {
 
             VStack(spacing: 12) {
                 ForEach(WritingCategory.allCases) { category in
-                    categoryRowCard(for: category)
+                    NavigationLink(destination: CharacterCatalogueView(category: category)) {
+                        categoryRowCard(for: category)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -33,86 +36,81 @@ struct CategoryDeckSection: View {
         let masteredCount = categoryCards.filter { $0.interval >= 21 }.count
         let progress = totalCount > 0 ? Double(masteredCount) / Double(totalCount) : 0.0
 
-        return Button {
-            onSelectCategory(category)
-        } label: {
-            HStack(spacing: 16) {
-                // Mini Progress Ring
-                ZStack {
-                    Circle()
-                        .stroke(
-                            Color.tsumugiFrozenWater.opacity(0.3),
-                            style: StrokeStyle(lineWidth: 6, lineCap: .round)
-                        )
+        return HStack(spacing: 16) {
+            // Mini Progress Ring
+            ZStack {
+                Circle()
+                    .stroke(
+                        Color.tsumugiFrozenWater.opacity(0.3),
+                        style: StrokeStyle(lineWidth: 6, lineCap: .round)
+                    )
 
-                    Circle()
-                        .trim(from: 0, to: progress)
-                        .stroke(
-                            Color.tsumugiDustyDenim,
-                            style: StrokeStyle(lineWidth: 6, lineCap: .round)
-                        )
-                        .rotationEffect(.degrees(-90))
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(
+                        Color.tsumugiDustyDenim,
+                        style: StrokeStyle(lineWidth: 6, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
 
-                    Text(category.japaneseTitle.prefix(1))
-                        .font(.headline)
-                        .fontWeight(.bold)
-                        .foregroundStyle(Color.tsumugiTextPrimary)
-                }
-                .frame(width: 52, height: 52)
+                Text(category.japaneseTitle.prefix(1))
+                    .font(.headline)
+                    .fontWeight(.bold)
+                    .foregroundStyle(Color.tsumugiTextPrimary)
+            }
+            .frame(width: 52, height: 52)
 
-                // Text Information
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text(category.displayName)
-                            .font(.headline)
-                            .foregroundStyle(Color.tsumugiTextPrimary)
-
-                        Text("(\(category.japaneseTitle))")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    HStack(spacing: 10) {
-                        Text("\(unlockedCount)/\(max(1, totalCount)) Unlocked")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-
-                        Text("•")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-
-                        Text("\(masteredCount) Mastered")
-                            .font(.caption2)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(Color.tsumugiDustyDenim)
-                    }
-                }
-
-                Spacer()
-
-                // Percentage & Chevron
+            // Text Information
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text("\(Int(progress * 100))%")
-                        .font(.subheadline)
-                        .fontWeight(.bold)
+                    Text(category.displayName)
+                        .font(.headline)
                         .foregroundStyle(Color.tsumugiTextPrimary)
 
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
+                    Text("(\(category.japaneseTitle))")
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
+
+                HStack(spacing: 10) {
+                    Text("\(unlockedCount)/\(max(1, totalCount)) Unlocked")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    Text("•")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    Text("\(masteredCount) Mastered")
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color.tsumugiDustyDenim)
+                }
             }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.tsumugiCardSurface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .stroke(Color.tsumugiCardBorder, lineWidth: 1)
-                    )
-            )
+
+            Spacer()
+
+            // Percentage & Chevron
+            HStack(spacing: 6) {
+                Text("\(Int(progress * 100))%")
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundStyle(Color.tsumugiTextPrimary)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
-        .buttonStyle(.plain)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color.tsumugiCardSurface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(Color.tsumugiCardBorder, lineWidth: 1)
+                )
+        )
     }
 }
 
@@ -123,7 +121,9 @@ struct CategoryDeckSection: View {
         CharacterCard(id: "3", character: "一", romaji: "ichi", primaryMeaning: "one", category: .kanji, strokeCount: 1, interval: 0, isUnlocked: true)
     ]
 
-    return CategoryDeckSection(cards: mockCards, onSelectCategory: { _ in })
-        .padding()
-        .modelContainer(PreviewContainer.shared)
+    return NavigationStack {
+        CategoryDeckSection(cards: mockCards)
+            .padding()
+            .modelContainer(PreviewContainer.shared)
+    }
 }

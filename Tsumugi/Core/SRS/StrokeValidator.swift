@@ -51,12 +51,15 @@ public struct StrokeValidator: Sendable {
             return .missedPath
         }
 
+        // Expanded start/end bounding box tolerance for comfortable touch drawing (0.28 standard, up to 0.32)
+        let effectiveTolerance = max(tolerance, 0.28)
+
         // 1. Check start point proximity
         let startDistance = distance(from: firstUserPoint, to: expectedSegment.startPoint)
-        guard startDistance <= tolerance else {
+        guard startDistance <= effectiveTolerance else {
             // Check if user drew backwards (started at end point)
             let reversedStartDistance = distance(from: firstUserPoint, to: expectedSegment.endPoint)
-            if reversedStartDistance <= tolerance {
+            if reversedStartDistance <= effectiveTolerance {
                 return .wrongDirection
             }
             return .missedPath
@@ -64,11 +67,43 @@ public struct StrokeValidator: Sendable {
 
         // 2. Check end point proximity
         let endDistance = distance(from: lastUserPoint, to: expectedSegment.endPoint)
-        guard endDistance <= tolerance else {
+        guard endDistance <= effectiveTolerance else {
             return .missedPath
         }
 
-        // 3. Directional vector validation
+        // 3. Multi-segment / Angled / Knee Validation
+        // If the stroke has intermediate corner / mid points (e.g., Katakana 'ア', 'フ', 'マ', 'ワ')
+        if !expectedSegment.midPoints.isEmpty {
+            // User path must pass near each intermediate vertex in sequence
+            var lastFoundIndex = 0
+            for midPoint in expectedSegment.midPoints {
+                // Find if any user point from lastFoundIndex onward is within tolerance of this corner vertex
+                var vertexFound = false
+                let vertexTolerance = effectiveTolerance * 1.15 // slightly more generous around sharp bends
+
+                for i in lastFoundIndex..<normalizedUserPoints.count {
+                    if distance(from: normalizedUserPoints[i], to: midPoint) <= vertexTolerance {
+                        vertexFound = true
+                        lastFoundIndex = i
+                        break
+                    }
+                }
+
+                // If user completely skipped the knee/corner of an angled stroke (e.g. cutting straight across diagonally)
+                if !vertexFound {
+                    return .missedPath
+                }
+            }
+
+            // Grade precision for multi-segment
+            if startDistance < (effectiveTolerance * 0.6) && endDistance < (effectiveTolerance * 0.6) {
+                return .perfect
+            } else {
+                return .acceptable
+            }
+        }
+
+        // 4. Directional vector validation for single straight/curved segments
         let userVector = CGVector(
             dx: lastUserPoint.x - firstUserPoint.x,
             dy: lastUserPoint.y - firstUserPoint.y
@@ -79,12 +114,13 @@ public struct StrokeValidator: Sendable {
         )
 
         let dotProduct = userVector.dx * expectedVector.dx + userVector.dy * expectedVector.dy
+        // Angular tolerance (cos(theta) > 0 covers up to 90 degrees; ensures general stroke progression direction)
         guard dotProduct > 0 else {
             return .wrongDirection
         }
 
-        // 4. Grade precision (Perfect vs Acceptable)
-        if startDistance < (tolerance * 0.55) && endDistance < (tolerance * 0.55) {
+        // 5. Grade precision (Perfect vs Acceptable)
+        if startDistance < (effectiveTolerance * 0.55) && endDistance < (effectiveTolerance * 0.55) {
             return .perfect
         } else {
             return .acceptable

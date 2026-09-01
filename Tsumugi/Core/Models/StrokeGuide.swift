@@ -6,7 +6,7 @@ public struct StrokeSegment: Sendable, Equatable {
     public let strokeNumber: Int
     /// Normalized start point (0.0 to 1.0)
     public let startPoint: CGPoint
-    /// Normalized intermediate guide points
+    /// Normalized intermediate guide / corner points
     public let midPoints: [CGPoint]
     /// Normalized end point (0.0 to 1.0)
     public let endPoint: CGPoint
@@ -43,10 +43,10 @@ public struct StrokeGuide: Sendable {
         strokes.count
     }
 
-    // MARK: - Pre-configured Starter Hiragana Vowels & K-Row Guides
+    // MARK: - Pre-configured Starter Hiragana & Katakana Guides
 
     public static let guides: [String: StrokeGuide] = [
-        // Vowels
+        // MARK: - Hiragana Vowels
         "あ": StrokeGuide(
             character: "あ",
             strokes: [
@@ -84,7 +84,8 @@ public struct StrokeGuide: Sendable {
                 StrokeSegment(strokeNumber: 3, startPoint: CGPoint(x: 0.72, y: 0.36), midPoints: [CGPoint(x: 0.76, y: 0.42)], endPoint: CGPoint(x: 0.80, y: 0.48))
             ]
         ),
-        // K-Row
+
+        // MARK: - Hiragana K-Row
         "か": StrokeGuide(
             character: "か",
             strokes: [
@@ -121,6 +122,57 @@ public struct StrokeGuide: Sendable {
             strokes: [
                 StrokeSegment(strokeNumber: 1, startPoint: CGPoint(x: 0.32, y: 0.32), midPoints: [CGPoint(x: 0.55, y: 0.32)], endPoint: CGPoint(x: 0.70, y: 0.36)),
                 StrokeSegment(strokeNumber: 2, startPoint: CGPoint(x: 0.30, y: 0.68), midPoints: [CGPoint(x: 0.55, y: 0.70)], endPoint: CGPoint(x: 0.72, y: 0.65))
+            ]
+        ),
+
+        // MARK: - Katakana Vowels
+        // Katakana 'ア' (2 strokes: downward sweep + horizontal-to-left sweep)
+        "ア": StrokeGuide(
+            character: "ア",
+            strokes: [
+                StrokeSegment(
+                    strokeNumber: 1,
+                    startPoint: CGPoint(x: 0.28, y: 0.22),
+                    midPoints: [CGPoint(x: 0.25, y: 0.33)],
+                    endPoint: CGPoint(x: 0.22, y: 0.45)
+                ),
+                StrokeSegment(
+                    strokeNumber: 2,
+                    startPoint: CGPoint(x: 0.28, y: 0.22),
+                    midPoints: [CGPoint(x: 0.75, y: 0.22)],
+                    endPoint: CGPoint(x: 0.45, y: 0.85)
+                )
+            ]
+        ),
+        "イ": StrokeGuide(
+            character: "イ",
+            strokes: [
+                StrokeSegment(strokeNumber: 1, startPoint: CGPoint(x: 0.55, y: 0.20), midPoints: [CGPoint(x: 0.40, y: 0.42)], endPoint: CGPoint(x: 0.25, y: 0.65)),
+                StrokeSegment(strokeNumber: 2, startPoint: CGPoint(x: 0.46, y: 0.35), midPoints: [CGPoint(x: 0.46, y: 0.58)], endPoint: CGPoint(x: 0.46, y: 0.82))
+            ]
+        ),
+        "ウ": StrokeGuide(
+            character: "ウ",
+            strokes: [
+                StrokeSegment(strokeNumber: 1, startPoint: CGPoint(x: 0.50, y: 0.18), midPoints: [], endPoint: CGPoint(x: 0.50, y: 0.28)),
+                StrokeSegment(strokeNumber: 2, startPoint: CGPoint(x: 0.30, y: 0.38), midPoints: [], endPoint: CGPoint(x: 0.28, y: 0.50)),
+                StrokeSegment(strokeNumber: 3, startPoint: CGPoint(x: 0.30, y: 0.38), midPoints: [CGPoint(x: 0.72, y: 0.38)], endPoint: CGPoint(x: 0.40, y: 0.82))
+            ]
+        ),
+        "エ": StrokeGuide(
+            character: "エ",
+            strokes: [
+                StrokeSegment(strokeNumber: 1, startPoint: CGPoint(x: 0.30, y: 0.25), midPoints: [CGPoint(x: 0.50, y: 0.25)], endPoint: CGPoint(x: 0.70, y: 0.25)),
+                StrokeSegment(strokeNumber: 2, startPoint: CGPoint(x: 0.50, y: 0.25), midPoints: [CGPoint(x: 0.50, y: 0.50)], endPoint: CGPoint(x: 0.50, y: 0.75)),
+                StrokeSegment(strokeNumber: 3, startPoint: CGPoint(x: 0.22, y: 0.75), midPoints: [CGPoint(x: 0.50, y: 0.75)], endPoint: CGPoint(x: 0.78, y: 0.75))
+            ]
+        ),
+        "オ": StrokeGuide(
+            character: "オ",
+            strokes: [
+                StrokeSegment(strokeNumber: 1, startPoint: CGPoint(x: 0.22, y: 0.35), midPoints: [CGPoint(x: 0.50, y: 0.35)], endPoint: CGPoint(x: 0.78, y: 0.35)),
+                StrokeSegment(strokeNumber: 2, startPoint: CGPoint(x: 0.48, y: 0.20), midPoints: [CGPoint(x: 0.48, y: 0.65)], endPoint: CGPoint(x: 0.42, y: 0.85)),
+                StrokeSegment(strokeNumber: 3, startPoint: CGPoint(x: 0.48, y: 0.45), midPoints: [CGPoint(x: 0.65, y: 0.62)], endPoint: CGPoint(x: 0.78, y: 0.80))
             ]
         )
     ]

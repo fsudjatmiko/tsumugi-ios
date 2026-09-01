@@ -53,13 +53,8 @@ struct DashboardView: View {
                     // 3. Weekly Review Activity Chart
                     WeeklyActivityChart(reviewLogs: allLogs)
 
-                    // 4. Curriculum Category Mastery Breakdown
-                    CategoryDeckSection(
-                        cards: allCards,
-                        onSelectCategory: { _ in
-                            onSelectStudyTab?()
-                        }
-                    )
+                    // 4. Curriculum Category Mastery Breakdown (Navigates to Character Matrix Catalogue)
+                    CategoryDeckSection(cards: allCards)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)

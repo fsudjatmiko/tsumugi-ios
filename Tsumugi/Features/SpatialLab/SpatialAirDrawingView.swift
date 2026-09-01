@@ -17,7 +17,11 @@ struct SpatialAirDrawingView: View {
             #if targetEnvironment(simulator)
             simulatorFallbackView
             #else
-            arRealityView
+            if #available(iOS 18.0, *) {
+                arRealityView
+            } else {
+                simulatorFallbackView
+            }
             #endif
 
             hudOverlay
@@ -28,6 +32,8 @@ struct SpatialAirDrawingView: View {
     // MARK: - AR RealityView (Device)
 
     #if !targetEnvironment(simulator)
+    @available(iOS 18.0, *)
+    @ViewBuilder
     private var arRealityView: some View {
         RealityView { content in
             let anchor = AnchorEntity(.camera)
@@ -62,7 +68,7 @@ struct SpatialAirDrawingView: View {
     }
     #endif
 
-    // MARK: - Simulator Fallback View
+    // MARK: - Simulator & iOS 17 Fallback View
 
     private var simulatorFallbackView: some View {
         ZStack {
@@ -84,7 +90,7 @@ struct SpatialAirDrawingView: View {
                         .shadow(color: isSuccess ? Color.tsumugiChartreuse.opacity(0.8) : .clear, radius: 12)
                 }
 
-                Text("Spatial 3D Simulation Mode")
+                Text("Spatial 3D Simulation Canvas")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

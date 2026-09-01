@@ -12,6 +12,9 @@ struct StudySessionView: View {
     }
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+
+    var onExit: (() -> Void)? = nil
 
     @Query(
         filter: #Predicate<CharacterCard> { card in
@@ -37,9 +40,14 @@ struct StudySessionView: View {
     }
 
     private var activeStudyQueue: [CharacterCard] {
-        isCramMode ? allUnlockedCards : dueCards
+        if !customQueue.isEmpty {
+            return customQueue
+        }
+        return isCramMode ? allUnlockedCards : dueCards
     }
 
+    @State private var customQueue: [CharacterCard] = []
+    @State private var isSessionActive: Bool = false
     @State private var selectedMode: StudyMode = .flashcard
     @State private var audioService = AudioService()
     @State private var srsEngine = SRSEngine()
@@ -52,16 +60,22 @@ struct StudySessionView: View {
     @State private var isCramMode: Bool = false
     @State private var unlockConfirmationMessage: String?
 
+    init(onExit: (() -> Void)? = nil) {
+        self.onExit = onExit
+    }
+
     var body: some View {
         NavigationStack {
             Group {
-                if activeStudyQueue.isEmpty && !isCramMode {
+                if !isSessionActive || (activeStudyQueue.isEmpty && !isCramMode) {
                     StudyQueueEmptyHubView(
                         unlockedCards: allUnlockedCards,
                         todayLogs: todayLogs,
                         onStartCramMode: {
                             isCramMode = true
+                            customQueue = allUnlockedCards
                             currentCardIndex = 0
+                            isSessionActive = true
                         },
                         onUnlockNextTier: {
                             let unlockedCount = SeedDataLoader.shared.unlockNextTier(context: modelContext)
@@ -69,24 +83,27 @@ struct StudySessionView: View {
                                 unlockConfirmationMessage = "Unlocked \(unlockedCount) new characters!"
                             }
                         },
-                        onSelectCharacter: { _ in }
+                        onSelectCharacter: { selectedCard in
+                            customQueue = [selectedCard]
+                            currentCardIndex = 0
+                            isCramMode = true
+                            isSessionActive = true
+                        }
                     )
                 } else {
                     activeStudySession
                 }
             }
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle(isCramMode ? "Free Practice (Cram)" : "Review")
+            .navigationTitle(navigationTitleText)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if !activeStudyQueue.isEmpty {
+                if isSessionActive && !activeStudyQueue.isEmpty {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Exit") {
-                            isCramMode = false
-                            currentCardIndex = 0
-                            isCardFlipped = false
-                            isWritingCompleted = false
+                            handleExit()
                         }
+                        .fontWeight(.regular)
                     }
 
                     ToolbarItem(placement: .principal) {
@@ -95,8 +112,8 @@ struct StudySessionView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    if selectedMode == .writing {
-                        ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        if selectedMode == .writing {
                             Button {
                                 showGhostGuide.toggle()
                             } label: {
@@ -105,6 +122,16 @@ struct StudySessionView: View {
                             }
                             .accessibilityLabel(showGhostGuide ? "Hide stroke guide" : "Show stroke guide")
                         }
+
+                        Button {
+                            skipCurrentCard()
+                        } label: {
+                            Label("Skip", systemImage: "forward.fill")
+                                .labelStyle(.titleAndIcon)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .tint(Color.tsumugiDustyDenim)
                     }
                 }
             }
@@ -119,7 +146,40 @@ struct StudySessionView: View {
                     unlockConfirmationMessage = nil
                 }
             }
+            .onAppear {
+                // If there are cards due when opening, start the active session automatically
+                if !dueCards.isEmpty && !isSessionActive && customQueue.isEmpty {
+                    isSessionActive = true
+                }
+            }
         }
+    }
+
+    private var navigationTitleText: String {
+        if !isSessionActive {
+            return "Practice Hub"
+        }
+        return isCramMode ? "Free Practice" : "Review"
+    }
+
+    // MARK: - Exit Handler
+
+    private func handleExit() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isSessionActive = false
+            isCramMode = false
+            customQueue.removeAll()
+            currentCardIndex = 0
+            isCardFlipped = false
+            isWritingCompleted = false
+            suggestedGrade = nil
+        }
+
+        // Dismiss modal if presented in sheet / fullScreenCover
+        dismiss()
+
+        // Notify parent coordinator if callback was attached
+        onExit?()
     }
 
     // MARK: - Active Session View
@@ -241,7 +301,23 @@ struct StudySessionView: View {
             )
             .id("\(card.id)_\(canvasResetID)")
 
-            // Show grading buttons only once writing has completed
+            // Secondary Pass / Reveal Action if writing is not completed yet
+            if !isWritingCompleted {
+                Button {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        isWritingCompleted = true
+                        suggestedGrade = .struggled
+                    }
+                } label: {
+                    Label("Reveal & Continue", systemImage: "eye")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.tsumugiDustyDenim)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
+            }
+
+            // Show grading buttons once writing is completed or revealed
             if isWritingCompleted {
                 ReviewControlBar(
                     card: card,
@@ -271,17 +347,44 @@ struct StudySessionView: View {
 
     private func calculateSuggestedGrade(retryCount: Int) {
         if retryCount == 0 {
-            suggestedGrade = .easy
+            suggestedGrade = .effortless
         } else if retryCount == 1 {
-            suggestedGrade = .good
+            suggestedGrade = .remembered
         } else if retryCount <= 3 {
-            suggestedGrade = .hard
+            suggestedGrade = .struggled
         } else {
-            suggestedGrade = .again
+            suggestedGrade = .forgot
         }
     }
 
     // MARK: - Navigation / Queue Logic
+
+    private func skipCurrentCard() {
+        guard !activeStudyQueue.isEmpty else { return }
+
+        // Ensure customQueue is populated so we can reorder the active items
+        if customQueue.isEmpty {
+            customQueue = activeStudyQueue
+        }
+
+        withAnimation(.easeInOut(duration: 0.25)) {
+            // Move current card to the end of the queue
+            if currentCardIndex < customQueue.count {
+                let skippedCard = customQueue.remove(at: currentCardIndex)
+                customQueue.append(skippedCard)
+            }
+
+            isCardFlipped = false
+            isWritingCompleted = false
+            suggestedGrade = nil
+            canvasResetID = UUID()
+
+            // Keep currentCardIndex pointing at the new card that took its slot, or reset if at end
+            if currentCardIndex >= customQueue.count {
+                currentCardIndex = 0
+            }
+        }
+    }
 
     private func advanceToNextCard() {
         withAnimation(.easeInOut(duration: 0.25)) {
@@ -289,10 +392,17 @@ struct StudySessionView: View {
             isWritingCompleted = false
             suggestedGrade = nil
             canvasResetID = UUID()
-            if currentCardIndex < activeStudyQueue.count - 1 {
-                currentCardIndex += 1
+
+            if !customQueue.isEmpty && currentCardIndex < customQueue.count {
+                customQueue.remove(at: currentCardIndex)
             } else {
+                currentCardIndex += 1
+            }
+
+            if currentCardIndex >= activeStudyQueue.count {
                 currentCardIndex = 0
+                customQueue.removeAll()
+                isSessionActive = false
                 if isCramMode {
                     isCramMode = false
                 }

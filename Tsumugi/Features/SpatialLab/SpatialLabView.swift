@@ -23,11 +23,15 @@ struct SpatialLabView: View {
     @State private var selectedCharacterIndex: Int = 0
     @State private var showingARSheet: Bool = false
 
-    private var activeCharacter: String {
+    private var activeCard: CharacterCard? {
         guard !unlockedCards.isEmpty, selectedCharacterIndex < unlockedCards.count else {
-            return "あ"
+            return unlockedCards.first
         }
-        return unlockedCards[selectedCharacterIndex].character
+        return unlockedCards[selectedCharacterIndex]
+    }
+
+    private var activeCharacter: String {
+        activeCard?.character ?? "あ"
     }
 
     var body: some View {
@@ -45,8 +49,9 @@ struct SpatialLabView: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)
             }
-            .background(Color.tsumugiBackground)
+            .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("Spatial Lab")
+            .navigationBarTitleDisplayMode(.large)
             .fullScreenCover(isPresented: $showingARSheet) {
                 NavigationStack {
                     SpatialAirDrawingView(
@@ -84,49 +89,81 @@ struct SpatialLabView: View {
 
     private var airDrawingSetupSection: some View {
         VStack(spacing: 20) {
-            // Character Selection Card
-            VStack(alignment: .leading, spacing: 12) {
+            if #available(iOS 18.0, *) {
+                // Active iOS 18+ RealityView Character Selection & Setup
+                characterSelectionCard
+
+                // Launch 3D Spatial Canvas
+                Button {
+                    showingARSheet = true
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "cube.transparent")
+                            .font(.title3)
+                        Text("Launch 3D Spatial Canvas")
+                            .fontWeight(.bold)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(Color.tsumugiDustyDenim)
+                .disabled(unlockedCards.isEmpty)
+            } else {
+                // Native iOS 17 Fallback State
+                ContentUnavailableView(
+                    "Spatial Lab Unavailable",
+                    systemImage: "cube.transparent",
+                    description: Text("Spatial 3D character interaction requires iOS 18.0 or newer. Please update your device to explore Spatial Lab.")
+                )
+                .padding(.vertical, 16)
+
+                // 2D Character Details Preview for iOS 17
+                if !unlockedCards.isEmpty {
+                    characterSelectionCard
+                }
+            }
+        }
+    }
+
+    // MARK: - Character Selection Card
+
+    private var characterSelectionCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
                 Text("Select Target Character")
                     .font(.headline)
-                    .foregroundStyle(Color.tsumugiSpaceIndigo)
+                    .foregroundStyle(Color.tsumugiTextPrimary)
 
-                if unlockedCards.isEmpty {
-                    ContentUnavailableView(
-                        "No Unlocked Characters",
-                        systemImage: "lock.fill",
-                        description: Text("Unlock characters in your study deck to practice in 3D AR.")
-                    )
-                } else {
-                    characterPickerGrid
+                Spacer()
+
+                if let card = activeCard {
+                    Text("\(card.romaji) • \(card.primaryMeaning)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.tsumugiCardSurface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .stroke(Color.tsumugiFrozenWater.opacity(0.4), lineWidth: 1)
-                    )
-            )
 
-            // Launch AR Button
-            Button {
-                showingARSheet = true
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "arkit")
-                        .font(.title3)
-                    Text("Launch 3D Spatial Canvas")
-                        .fontWeight(.bold)
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 48)
+            if unlockedCards.isEmpty {
+                ContentUnavailableView(
+                    "No Unlocked Characters",
+                    systemImage: "lock.fill",
+                    description: Text("Unlock characters in your study deck to practice in Spatial Lab.")
+                )
+            } else {
+                characterPickerGrid
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .tint(Color.tsumugiDustyDenim)
         }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(Color.tsumugiCardBorder, lineWidth: 1)
+                )
+        )
     }
 
     // MARK: - Character Picker Grid
@@ -140,9 +177,9 @@ struct SpatialLabView: View {
                     } label: {
                         VStack(spacing: 4) {
                             Text(card.character)
-                                .font(.title)
+                                .font(.title2)
                                 .fontWeight(.bold)
-                                .foregroundStyle(selectedCharacterIndex == index ? Color.tsumugiSpaceIndigo : .secondary)
+                                .foregroundStyle(selectedCharacterIndex == index ? Color.tsumugiTextPrimary : .secondary)
 
                             Text(card.romaji)
                                 .font(.caption2)
@@ -151,10 +188,10 @@ struct SpatialLabView: View {
                         .frame(width: 64, height: 72)
                         .background(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(selectedCharacterIndex == index ? Color.tsumugiChartreuse.opacity(0.5) : Color.clear)
+                                .fill(selectedCharacterIndex == index ? Color.tsumugiChartreuse.opacity(0.35) : Color(uiColor: .systemGroupedBackground))
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                        .stroke(selectedCharacterIndex == index ? Color.tsumugiChartreuse : Color.secondary.opacity(0.2), lineWidth: 1.5)
+                                        .stroke(selectedCharacterIndex == index ? Color.tsumugiChartreuse : Color.tsumugiCardBorder, lineWidth: selectedCharacterIndex == index ? 1.5 : 1)
                                 )
                         )
                     }

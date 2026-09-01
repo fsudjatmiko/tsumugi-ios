@@ -9,6 +9,8 @@ public struct SeedCharacterDTO: Codable, Sendable {
     public let primaryMeaning: String
     public let category: WritingCategory
     public let strokeCount: Int
+    public let rowCategory: String?
+    public let isUnlocked: Bool?
 
     public init(
         id: String,
@@ -16,7 +18,9 @@ public struct SeedCharacterDTO: Codable, Sendable {
         romaji: String,
         primaryMeaning: String,
         category: WritingCategory,
-        strokeCount: Int
+        strokeCount: Int,
+        rowCategory: String? = nil,
+        isUnlocked: Bool? = nil
     ) {
         self.id = id
         self.character = character
@@ -24,29 +28,30 @@ public struct SeedCharacterDTO: Codable, Sendable {
         self.primaryMeaning = primaryMeaning
         self.category = category
         self.strokeCount = strokeCount
+        self.rowCategory = rowCategory
+        self.isUnlocked = isUnlocked
     }
 }
 
-/// Service responsible for loading bundled JSON datasets and seeding SwiftData models.
+/// Service responsible for loading bundled JSON datasets, backfilling missing records, and managing progressive tier unlocks.
 public final class SeedDataLoader: Sendable {
     public static let shared = SeedDataLoader()
 
     public init() {}
 
-    /// Preloads seed data asynchronously from bundled JSON resources if the database table is currently empty.
+    /// Preloads or backfills seed data from bundled JSON resources without duplicating existing records.
     @MainActor
     public func preloadSeedDataIfNeeded(
         context: ModelContext,
         bundle: Bundle = .main
     ) async {
-        let descriptor = FetchDescriptor<CharacterCard>()
-        let existingCount = (try? context.fetchCount(descriptor)) ?? 0
-        guard existingCount == 0 else {
-            return
-        }
+        // Fetch all existing IDs from the database to ensure fast in-memory existence checks
+        let existingDescriptor = FetchDescriptor<CharacterCard>()
+        let existingCards = (try? context.fetch(existingDescriptor)) ?? []
+        let existingIDs = Set(existingCards.map(\.id))
 
         let resourceNames = ["hiragana", "katakana", "n5_kanji"]
-        var loadedCards: [CharacterCard] = []
+        var insertedCount = 0
 
         for resource in resourceNames {
             if let url = bundle.url(forResource: resource, withExtension: "json") {
@@ -56,6 +61,13 @@ public final class SeedDataLoader: Sendable {
                     let items = try decoder.decode([SeedCharacterDTO].self, from: data)
 
                     for item in items {
+                        guard !existingIDs.contains(item.id) else {
+                            continue
+                        }
+
+                        // Determine initial unlock state: starter rows (A-row, K-row) or explicit JSON isUnlocked property
+                        let unlocked = item.isUnlocked ?? (item.rowCategory == "A-row" || item.rowCategory == "K-row" || item.id.hasPrefix("hira_a") || item.id.hasPrefix("hira_i") || item.id.hasPrefix("hira_u") || item.id.hasPrefix("hira_e") || item.id.hasPrefix("hira_o") || item.id.hasPrefix("hira_k") || item.id.hasPrefix("kata_a") || item.id.hasPrefix("kata_i") || item.id.hasPrefix("kata_u") || item.id.hasPrefix("kata_e") || item.id.hasPrefix("kata_o") || item.id.hasPrefix("kata_k"))
+
                         let card = CharacterCard(
                             id: item.id,
                             character: item.character,
@@ -66,11 +78,11 @@ public final class SeedDataLoader: Sendable {
                             interval: 0,
                             repetitions: 0,
                             easeFactor: 2.5,
-                            nextReviewDate: Date(),
-                            isUnlocked: true
+                            nextReviewDate: Date.now,
+                            isUnlocked: unlocked
                         )
-                        loadedCards.append(card)
                         context.insert(card)
+                        insertedCount += 1
                     }
                 } catch {
                     print("⚠️ [SeedDataLoader] Failed to decode \(resource).json: \(error)")
@@ -78,14 +90,19 @@ public final class SeedDataLoader: Sendable {
             }
         }
 
-        // Fallback default starter items if no JSON files could be loaded from bundle
-        if loadedCards.isEmpty {
+        // Fallback default starter items if no JSON files were found or database was completely empty
+        if existingIDs.isEmpty && insertedCount == 0 {
             let fallbackStarters: [(id: String, char: String, romaji: String, meaning: String, cat: WritingCategory, strokes: Int)] = [
-                ("hira_a", "あ", "a", "a (vowel)", .hiragana, 3),
-                ("hira_i", "い", "i", "i (vowel)", .hiragana, 2),
-                ("hira_u", "う", "u", "u (vowel)", .hiragana, 2),
-                ("hira_e", "え", "e", "e (vowel)", .hiragana, 2),
-                ("hira_o", "お", "o", "o (vowel)", .hiragana, 3)
+                ("hira_a", "あ", "a", "a (vowel sound)", .hiragana, 3),
+                ("hira_i", "い", "i", "i (vowel sound)", .hiragana, 2),
+                ("hira_u", "う", "u", "u (vowel sound)", .hiragana, 2),
+                ("hira_e", "え", "e", "e (vowel sound)", .hiragana, 2),
+                ("hira_o", "お", "o", "o (vowel sound)", .hiragana, 3),
+                ("hira_ka", "か", "ka", "ka (K-row sound)", .hiragana, 3),
+                ("hira_ki", "き", "ki", "ki (K-row sound)", .hiragana, 4),
+                ("hira_ku", "く", "ku", "ku (K-row sound)", .hiragana, 1),
+                ("hira_ke", "け", "ke", "ke (K-row sound)", .hiragana, 3),
+                ("hira_ko", "こ", "ko", "ko (K-row sound)", .hiragana, 2)
             ]
 
             for starter in fallbackStarters {
@@ -99,79 +116,46 @@ public final class SeedDataLoader: Sendable {
                     interval: 0,
                     repetitions: 0,
                     easeFactor: 2.5,
-                    nextReviewDate: Date(),
-                    isUnlocked: true
-                )
-                context.insert(card)
-            }
-        }
-
-        do {
-            try context.save()
-        } catch {
-            print("⚠️ [SeedDataLoader] Failed to save preloaded seed items: \(error)")
-        }
-    }
-
-    /// Unlocks the next tier/row of characters into the user's active study deck.
-    @MainActor
-    public func unlockNextTier(context: ModelContext) -> Int {
-        // Find locked cards in the database first
-        let lockedDescriptor = FetchDescriptor<CharacterCard>(
-            predicate: #Predicate<CharacterCard> { card in
-                !card.isUnlocked
-            }
-        )
-
-        if let lockedCards = try? context.fetch(lockedDescriptor), !lockedCards.isEmpty {
-            let batch = Array(lockedCards.prefix(5))
-            for card in batch {
-                card.isUnlocked = true
-                card.nextReviewDate = Date.now
-            }
-            try? context.save()
-            return batch.count
-        }
-
-        // If no locked cards exist, insert the next canonical Hiragana row (K-Row: か, き, く, け, こ)
-        let kRowCards: [(id: String, char: String, romaji: String, meaning: String, cat: WritingCategory, strokes: Int)] = [
-            ("hira_ka", "か", "ka", "ka (syllable)", .hiragana, 3),
-            ("hira_ki", "き", "ki", "ki (syllable)", .hiragana, 4),
-            ("hira_ku", "く", "ku", "ku (syllable)", .hiragana, 1),
-            ("hira_ke", "け", "ke", "ke (syllable)", .hiragana, 3),
-            ("hira_ko", "こ", "ko", "ko (syllable)", .hiragana, 2)
-        ]
-
-        var newCount = 0
-        for item in kRowCards {
-            let targetId = item.id
-            let existingDescriptor = FetchDescriptor<CharacterCard>(
-                predicate: #Predicate<CharacterCard> { card in
-                    card.id == targetId
-                }
-            )
-            let exists = ((try? context.fetchCount(existingDescriptor)) ?? 0) > 0
-
-            if !exists {
-                let newCard = CharacterCard(
-                    id: item.id,
-                    character: item.char,
-                    romaji: item.romaji,
-                    primaryMeaning: item.meaning,
-                    category: item.cat,
-                    strokeCount: item.strokes,
-                    interval: 0,
-                    repetitions: 0,
-                    easeFactor: 2.5,
                     nextReviewDate: Date.now,
                     isUnlocked: true
                 )
-                context.insert(newCard)
-                newCount += 1
+                context.insert(card)
+                insertedCount += 1
             }
         }
 
+        if insertedCount > 0 {
+            do {
+                try context.save()
+            } catch {
+                print("⚠️ [SeedDataLoader] Failed to save preloaded seed items: \(error)")
+            }
+        }
+    }
+
+    /// Unlocks the next tier/row of locked characters into the user's active study deck.
+    @MainActor
+    public func unlockNextTier(context: ModelContext) -> Int {
+        // Fetch all locked cards
+        let lockedDescriptor = FetchDescriptor<CharacterCard>(
+            predicate: #Predicate<CharacterCard> { card in
+                !card.isUnlocked
+            },
+            sortBy: [SortDescriptor(\CharacterCard.id, order: .forward)]
+        )
+
+        guard let lockedCards = try? context.fetch(lockedDescriptor), !lockedCards.isEmpty else {
+            return 0
+        }
+
+        // Unlock the next batch of up to 5 characters
+        let batch = Array(lockedCards.prefix(5))
+        for card in batch {
+            card.isUnlocked = true
+            card.nextReviewDate = Date.now
+        }
+
         try? context.save()
-        return newCount
+        return batch.count
     }
 }
