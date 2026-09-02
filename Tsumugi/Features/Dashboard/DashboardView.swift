@@ -9,6 +9,10 @@ struct DashboardView: View {
     @Query(sort: \ReviewLog.timestamp, order: .reverse)
     private var allLogs: [ReviewLog]
 
+    // Active Profile State for Live Navigation Avatar
+    @AppStorage("profile_selected_emoji") private var profileEmoji: String = "🦊"
+    @AppStorage("profile_avatar_data") private var profileAvatarData: Data = Data()
+
     @State private var showProfile: Bool = false
 
     let onSelectStudyTab: (() -> Void)?
@@ -31,6 +35,10 @@ struct DashboardView: View {
 
     private var masteredCardsCount: Int {
         allCards.filter { $0.interval >= 21 }.count
+    }
+
+    private var activeAvatarData: Data? {
+        profileAvatarData.isEmpty ? nil : profileAvatarData
     }
 
     var body: some View {
@@ -67,10 +75,14 @@ struct DashboardView: View {
                     Button {
                         showProfile = true
                     } label: {
-                        Image(systemName: "person.crop.circle")
-                            .font(.title3)
-                            .foregroundStyle(Color.tsumugiDustyDenim)
+                        UserAvatarView(
+                            imageData: activeAvatarData,
+                            emoji: profileEmoji,
+                            size: 36,
+                            strokeWidth: 0
+                        )
                     }
+                    .buttonStyle(.plain)
                     .accessibilityLabel("User Profile & Settings")
                 }
             }

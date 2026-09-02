@@ -71,7 +71,17 @@ public struct PreviewContainer {
                     repetitions: 0,
                     easeFactor: 2.5,
                     nextReviewDate: Date(),
-                    isUnlocked: true
+                    isUnlocked: true,
+                    onyomi: ["イチ", "イツ"],
+                    kunyomi: ["ひと", "ひとつ"],
+                    clusterCategory: "Numbers & Counters",
+                    gradeLevel: 1,
+                    jlptLevel: "N5",
+                    radicals: ["一"],
+                    examples: [
+                        KanjiExample(text: "一つ", kana: "ひとつ", english: "one thing"),
+                        KanjiExample(text: "一人", kana: "ひとり", english: "one person")
+                    ]
                 ),
                 CharacterCard(
                     id: "kanji_sun",
@@ -84,7 +94,17 @@ public struct PreviewContainer {
                     repetitions: 0,
                     easeFactor: 2.5,
                     nextReviewDate: Date(),
-                    isUnlocked: false
+                    isUnlocked: false,
+                    onyomi: ["ニチ", "ジツ"],
+                    kunyomi: ["ひ", "か"],
+                    clusterCategory: "Nature, Elements & Time",
+                    gradeLevel: 1,
+                    jlptLevel: "N5",
+                    radicals: ["日"],
+                    examples: [
+                        KanjiExample(text: "日曜日", kana: "にちようび", english: "Sunday"),
+                        KanjiExample(text: "今日", kana: "きょう", english: "today")
+                    ]
                 )
             ]
 

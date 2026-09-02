@@ -33,26 +33,30 @@ public struct SeedCharacterDTO: Codable, Sendable {
     }
 }
 
-/// Service responsible for loading bundled JSON datasets, backfilling missing records, and managing progressive tier unlocks.
+/// Service responsible for loading bundled datasets, seeding the 80 Grade 1 Kanji, and managing progressive tier unlocks.
 public final class SeedDataLoader: Sendable {
     public static let shared = SeedDataLoader()
 
     public init() {}
 
-    /// Preloads or backfills seed data from bundled JSON resources without duplicating existing records.
+    /// Preloads or backfills seed data (Hiragana, Katakana, and all 80 Grade 1 Kanji) without duplicating existing records.
     @MainActor
     public func preloadSeedDataIfNeeded(
         context: ModelContext,
         bundle: Bundle = .main
     ) async {
-        // Fetch all existing IDs from the database to ensure fast in-memory existence checks
+        // Fetch all existing cards from the database
         let existingDescriptor = FetchDescriptor<CharacterCard>()
         let existingCards = (try? context.fetch(existingDescriptor)) ?? []
         let existingIDs = Set(existingCards.map(\.id))
+        let existingChars = Set(existingCards.map(\.character))
+        let cardMapByID = Dictionary(uniqueKeysWithValues: existingCards.map { ($0.id, $0) })
 
-        let resourceNames = ["hiragana", "katakana", "n5_kanji"]
         var insertedCount = 0
+        var updatedCount = 0
 
+        // 1. Seed Hiragana and Katakana from JSON resources
+        let resourceNames = ["hiragana", "katakana"]
         for resource in resourceNames {
             if let url = bundle.url(forResource: resource, withExtension: "json") {
                 do {
@@ -61,11 +65,10 @@ public final class SeedDataLoader: Sendable {
                     let items = try decoder.decode([SeedCharacterDTO].self, from: data)
 
                     for item in items {
-                        guard !existingIDs.contains(item.id) else {
+                        guard !existingIDs.contains(item.id) && !existingChars.contains(item.character) else {
                             continue
                         }
 
-                        // Determine initial unlock state: starter rows (A-row, K-row) or explicit JSON isUnlocked property
                         let unlocked = item.isUnlocked ?? (item.rowCategory == "A-row" || item.rowCategory == "K-row" || item.id.hasPrefix("hira_a") || item.id.hasPrefix("hira_i") || item.id.hasPrefix("hira_u") || item.id.hasPrefix("hira_e") || item.id.hasPrefix("hira_o") || item.id.hasPrefix("hira_k") || item.id.hasPrefix("kata_a") || item.id.hasPrefix("kata_i") || item.id.hasPrefix("kata_u") || item.id.hasPrefix("kata_e") || item.id.hasPrefix("kata_o") || item.id.hasPrefix("kata_k"))
 
                         let card = CharacterCard(
@@ -90,7 +93,52 @@ public final class SeedDataLoader: Sendable {
             }
         }
 
-        // Fallback default starter items if no JSON files were found or database was completely empty
+        // 2. Seed / Backfill Complete 80 Grade 1 Kanji
+        for rawKanji in KanjiGrade1Dataset.all80 {
+            if let existingCard = cardMapByID[rawKanji.id] ?? existingCards.first(where: { $0.character == rawKanji.character && $0.category == .kanji }) {
+                // Enrich existing card with rich Kanji metadata if not present
+                if existingCard.onyxomi.isEmpty || existingCard.clusterCategory == nil {
+                    existingCard.onyxomi = rawKanji.onyomi
+                    existingCard.kunyomi = rawKanji.kunyomi
+                    existingCard.clusterCategory = rawKanji.category
+                    existingCard.gradeLevel = rawKanji.gradeLevel
+                    existingCard.jlptLevel = rawKanji.jlptLevel
+                    existingCard.radicals = rawKanji.radicals
+                    if let data = try? JSONEncoder().encode(rawKanji.examples) {
+                        existingCard.examplesJSON = String(data: data, encoding: .utf8)
+                    }
+                    updatedCount += 1
+                }
+            } else {
+                // Primary romaji representation from first kunyomi or onyomi
+                let primaryRomaji = rawKanji.kunyomi.first ?? rawKanji.onyomi.first ?? ""
+
+                let card = CharacterCard(
+                    id: rawKanji.id,
+                    character: rawKanji.character,
+                    romaji: primaryRomaji,
+                    primaryMeaning: rawKanji.meaning,
+                    category: .kanji,
+                    strokeCount: rawKanji.strokeCount,
+                    interval: 0,
+                    repetitions: 0,
+                    easeFactor: 2.5,
+                    nextReviewDate: Date.now,
+                    isUnlocked: rawKanji.isUnlocked,
+                    onyomi: rawKanji.onyomi,
+                    kunyomi: rawKanji.kunyomi,
+                    clusterCategory: rawKanji.category,
+                    gradeLevel: rawKanji.gradeLevel,
+                    jlptLevel: rawKanji.jlptLevel,
+                    radicals: rawKanji.radicals,
+                    examples: rawKanji.examples
+                )
+                context.insert(card)
+                insertedCount += 1
+            }
+        }
+
+        // Fallback default starter kana items if database was completely empty and no JSON was bundled
         if existingIDs.isEmpty && insertedCount == 0 {
             let fallbackStarters: [(id: String, char: String, romaji: String, meaning: String, cat: WritingCategory, strokes: Int)] = [
                 ("hira_a", "あ", "a", "a (vowel sound)", .hiragana, 3),
@@ -124,7 +172,7 @@ public final class SeedDataLoader: Sendable {
             }
         }
 
-        if insertedCount > 0 {
+        if insertedCount > 0 || updatedCount > 0 {
             do {
                 try context.save()
             } catch {

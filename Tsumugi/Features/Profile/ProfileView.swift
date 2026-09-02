@@ -10,17 +10,17 @@ struct ProfileView: View {
     @Query private var allCards: [CharacterCard]
     @Query(sort: \ReviewLog.timestamp, order: .reverse) private var allLogs: [ReviewLog]
 
-    // MARK: - User Preferences & Profile State (AppStorage / State)
+    // MARK: - User Preferences & Profile State (AppStorage / Persistence)
     @AppStorage("profile_display_name") private var displayName: String = "Learner"
     @AppStorage("profile_jlpt_level") private var targetLevel: String = "JLPT N5"
     @AppStorage("profile_selected_emoji") private var selectedEmoji: String = "🦊"
+    @AppStorage("profile_avatar_data") private var storedAvatarData: Data = Data()
     @AppStorage("profile_daily_goal") private var dailyGoal: Int = 20
     @AppStorage("profile_auto_audio") private var autoPlayAudio: Bool = true
     @AppStorage("profile_show_furigana") private var showFuriganaHint: Bool = true
 
     // PhotosPicker, Action Sheet & Preview States
     @State private var selectedPhotoItem: PhotosPickerItem?
-    @State private var customAvatarData: Data? = nil
     @State private var showActionSheet: Bool = false
     @State private var showPhotosPicker: Bool = false
     @State private var showEmojiInputSheet: Bool = false
@@ -28,6 +28,10 @@ struct ProfileView: View {
     @State private var isShowingPreview: Bool = false
     @State private var showResetConfirmation: Bool = false
     @State private var resetToastMessage: String?
+
+    private var activeAvatarData: Data? {
+        storedAvatarData.isEmpty ? nil : storedAvatarData
+    }
 
     private let targetLevels = ["JLPT N5", "JLPT N4", "JLPT N3", "JLPT N2", "JLPT N1", "Beginner Kana"]
 
@@ -101,9 +105,9 @@ struct ProfileView: View {
                     showEmojiInputSheet = true
                 }
 
-                if customAvatarData != nil || !selectedEmoji.isEmpty {
+                if activeAvatarData != nil || !selectedEmoji.isEmpty {
                     Button("Remove Photo", role: .destructive) {
-                        customAvatarData = nil
+                        storedAvatarData = Data()
                         selectedEmoji = ""
                     }
                 }
@@ -118,7 +122,7 @@ struct ProfileView: View {
             .onChange(of: selectedPhotoItem) { _, newItem in
                 Task {
                     if let data = try? await newItem?.loadTransferable(type: Data.self) {
-                        customAvatarData = data
+                        storedAvatarData = data
                         selectedEmoji = ""
                     }
                 }
@@ -168,15 +172,13 @@ struct ProfileView: View {
                 Button {
                     isShowingPreview = true
                 } label: {
-                    avatarCircleView(size: 80, fontSize: 42)
-                        .frame(width: 80, height: 80)
-                        .background(Color.tsumugiFrozenWater.opacity(0.35))
-                        .clipShape(Circle())
-                        .overlay(
-                            Circle()
-                                .stroke(Color.tsumugiDustyDenim.opacity(0.3), lineWidth: 2)
-                        )
-                        .shadow(color: Color.black.opacity(0.06), radius: 4, x: 0, y: 2)
+                    UserAvatarView(
+                        imageData: activeAvatarData,
+                        emoji: selectedEmoji,
+                        size: 80,
+                        strokeWidth: 2
+                    )
+                    .shadow(color: Color.black.opacity(0.06), radius: 4, x: 0, y: 2)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("View profile avatar preview")
@@ -197,24 +199,6 @@ struct ProfileView: View {
             .padding(.vertical, 8)
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets())
-        }
-    }
-
-    @ViewBuilder
-    private func avatarCircleView(size: CGFloat, fontSize: CGFloat) -> some View {
-        if let data = customAvatarData, let uiImage = UIImage(data: data) {
-            Image(uiImage: uiImage)
-                .resizable()
-                .scaledToFill()
-        } else if !selectedEmoji.isEmpty {
-            Text(selectedEmoji)
-                .font(.system(size: fontSize))
-        } else {
-            Image(systemName: "person.crop.circle.fill")
-                .resizable()
-                .scaledToFit()
-                .foregroundStyle(Color.tsumugiDustyDenim.opacity(0.7))
-                .padding(size * 0.1)
         }
     }
 
@@ -248,6 +232,7 @@ struct ProfileView: View {
                 Text("\(unlockedCount) / \(max(1, totalCardsCount))")
                     .font(.subheadline.monospacedDigit())
                     .fontWeight(.medium)
+                    .foregroundStyle(Color.tsumugiTextPrimary)
             } label: {
                 Label("Unlocked Characters", systemImage: "character.book.closed.fill")
                     .foregroundStyle(Color.tsumugiTextPrimary)
@@ -256,10 +241,10 @@ struct ProfileView: View {
             LabeledContent {
                 Text("\(masteredCardsCount)")
                     .font(.subheadline.monospacedDigit())
-                    .fontWeight(.semibold)
+                    .fontWeight(.medium)
                     .foregroundStyle(Color.tsumugiDustyDenim)
             } label: {
-                Label("Mastered Cards (≥ 21d)", systemImage: "sparkles")
+                Label("Mastered (21d+ Interval)", systemImage: "sparkles")
                     .foregroundStyle(Color.tsumugiTextPrimary)
             }
 
@@ -267,21 +252,23 @@ struct ProfileView: View {
                 Text("\(totalReviewsCount)")
                     .font(.subheadline.monospacedDigit())
                     .fontWeight(.medium)
+                    .foregroundStyle(Color.tsumugiTextPrimary)
             } label: {
-                Label("Lifetime Reviews", systemImage: "clock.arrow.circlepath")
+                Label("Total Reviews Logged", systemImage: "arrow.counterclockwise.circle.fill")
                     .foregroundStyle(Color.tsumugiTextPrimary)
             }
 
             LabeledContent {
                 HStack(spacing: 4) {
                     Image(systemName: "flame.fill")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Color.orange)
                     Text("\(currentStreak) \(currentStreak == 1 ? "day" : "days")")
                         .font(.subheadline.monospacedDigit())
                         .fontWeight(.bold)
+                        .foregroundStyle(Color.orange)
                 }
             } label: {
-                Label("Current Streak", systemImage: "flame")
+                Label("Current Streak", systemImage: "flame.fill")
                     .foregroundStyle(Color.tsumugiTextPrimary)
             }
 
@@ -289,6 +276,7 @@ struct ProfileView: View {
                 Text("\(longestStreak) \(longestStreak == 1 ? "day" : "days")")
                     .font(.subheadline.monospacedDigit())
                     .fontWeight(.medium)
+                    .foregroundStyle(Color.tsumugiTextPrimary)
             } label: {
                 Label("Longest Streak", systemImage: "trophy.fill")
                     .foregroundStyle(Color.tsumugiTextPrimary)
@@ -299,32 +287,21 @@ struct ProfileView: View {
     // MARK: - 4. Learning Preferences Section
 
     private var preferencesSection: some View {
-        Section("Learning Preferences") {
-            VStack(alignment: .leading, spacing: 8) {
+        Section("Study Preferences") {
+            Stepper(value: $dailyGoal, in: 5...100, step: 5) {
                 HStack {
                     Label("Daily Review Goal", systemImage: "target")
                         .foregroundStyle(Color.tsumugiTextPrimary)
                     Spacer()
                     Text("\(dailyGoal) cards")
                         .font(.subheadline.monospacedDigit())
-                        .fontWeight(.semibold)
-                        .foregroundStyle(Color.tsumugiDustyDenim)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.secondary)
                 }
-
-                Slider(
-                    value: Binding(
-                        get: { Double(dailyGoal) },
-                        set: { dailyGoal = Int($0) }
-                    ),
-                    in: 5...50,
-                    step: 5
-                )
-                .tint(Color.tsumugiDustyDenim)
             }
-            .padding(.vertical, 4)
 
             Toggle(isOn: $autoPlayAudio) {
-                Label("Auto-Play Audio on Flip", systemImage: "speaker.wave.2.fill")
+                Label("Auto-play Pronunciation", systemImage: "speaker.wave.2.fill")
                     .foregroundStyle(Color.tsumugiTextPrimary)
             }
             .tint(Color.tsumugiDustyDenim)
@@ -340,43 +317,48 @@ struct ProfileView: View {
     // MARK: - 5. Data Management Section
 
     private var dataManagementSection: some View {
-        Section {
+        Section("Data & Maintenance") {
             Button(role: .destructive) {
                 showResetConfirmation = true
             } label: {
-                Label("Reset Learning Progress", systemImage: "arrow.counterclockwise.circle.fill")
+                HStack {
+                    Label("Reset Study Progress", systemImage: "arrow.counterclockwise")
+                    Spacer()
+                }
             }
-        } footer: {
-            Text("Tsumugi (紡ぎ) runs 100% on-device. All learning data and review metrics remain strictly private on your device.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
         }
     }
 
-    // MARK: - Native System Emoji Input Sheet
+    // MARK: - System Emoji Picker Sheet
 
     private var emojiInputSheetView: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                Text("Type or select any emoji from the keyboard")
+            VStack(spacing: 20) {
+                Text("Enter any emoji to set as your profile avatar.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .padding(.top, 8)
+                    .padding(.horizontal)
 
-                EmojiInputField(text: $emojiInputText) { chosenEmoji in
-                    customAvatarData = nil
-                    selectedEmoji = chosenEmoji
-                    showEmojiInputSheet = false
-                }
-                .frame(width: 80, height: 80)
-                .background(Color(uiColor: .secondarySystemBackground))
-                .clipShape(Circle())
-                .overlay(Circle().stroke(Color.tsumugiDustyDenim, lineWidth: 2))
+                TextField("Type Emoji (e.g. 🦊, 🌸, ⛩️)", text: $emojiInputText)
+                    .font(.system(size: 36))
+                    .multilineTextAlignment(.center)
+                    .padding()
+                    .background(Color(uiColor: .tertiarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .padding(.horizontal, 32)
+                    .onChange(of: emojiInputText) { _, newValue in
+                        let lastGrapheme = String(newValue.suffix(1))
+                        if !lastGrapheme.isEmpty {
+                            selectedEmoji = lastGrapheme
+                            storedAvatarData = Data()
+                            showEmojiInputSheet = false
+                        }
+                    }
 
                 Spacer()
             }
-            .padding(.horizontal, 24)
+            .padding(.top, 16)
             .navigationTitle("Choose Emoji")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -396,12 +378,13 @@ struct ProfileView: View {
             VStack(spacing: 20) {
                 Spacer()
 
-                avatarCircleView(size: 200, fontSize: 108)
-                    .frame(width: 200, height: 200)
-                    .background(Color.tsumugiFrozenWater.opacity(0.35))
-                    .clipShape(Circle())
-                    .overlay(Circle().stroke(Color.tsumugiDustyDenim.opacity(0.3), lineWidth: 3))
-                    .shadow(color: Color.black.opacity(0.12), radius: 16, x: 0, y: 6)
+                UserAvatarView(
+                    imageData: activeAvatarData,
+                    emoji: selectedEmoji,
+                    size: 180,
+                    strokeWidth: 3
+                )
+                .shadow(color: Color.black.opacity(0.12), radius: 16, x: 0, y: 6)
 
                 VStack(spacing: 4) {
                     Text(displayName)
@@ -448,102 +431,71 @@ struct ProfileView: View {
         resetToastMessage = "Learning progress has been successfully reset."
     }
 
-    // MARK: - Streak Calculators
+    // MARK: - Streak Helpers
 
     private func calculateStreak(from logs: [ReviewLog]) -> Int {
         guard !logs.isEmpty else { return 0 }
         let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date.now)
-        let reviewDays = Set(logs.map { calendar.startOfDay(for: $0.timestamp) })
+        let today = calendar.startOfDay(for: Date())
 
-        var checkDate: Date
-        if reviewDays.contains(today) {
-            checkDate = today
-        } else {
-            guard let yesterday = calendar.date(byAdding: .day, value: -1, to: today),
-                  reviewDays.contains(yesterday) else {
-                return 0
-            }
-            checkDate = yesterday
+        var uniqueDays = Set<Date>()
+        for log in logs {
+            let day = calendar.startOfDay(for: log.timestamp)
+            uniqueDays.insert(day)
         }
 
         var streak = 0
-        while reviewDays.contains(checkDate) {
-            streak += 1
-            guard let previousDay = calendar.date(byAdding: .day, value: -1, to: checkDate) else { break }
-            checkDate = previousDay
+        var checkDay = today
+
+        if !uniqueDays.contains(checkDay) {
+            guard let yesterday = calendar.date(byAdding: .day, value: -1, to: today) else { return 0 }
+            if uniqueDays.contains(yesterday) {
+                checkDay = yesterday
+            } else {
+                return 0
+            }
         }
+
+        while uniqueDays.contains(checkDay) {
+            streak += 1
+            guard let prev = calendar.date(byAdding: .day, value: -1, to: checkDay) else { break }
+            checkDay = prev
+        }
+
         return streak
     }
 
     private func calculateLongestStreak(from logs: [ReviewLog]) -> Int {
         guard !logs.isEmpty else { return 0 }
         let calendar = Calendar.current
-        let reviewDays = Array(Set(logs.map { calendar.startOfDay(for: $0.timestamp) })).sorted()
 
-        guard !reviewDays.isEmpty else { return 0 }
+        var uniqueDays = Set<Date>()
+        for log in logs {
+            let day = calendar.startOfDay(for: log.timestamp)
+            uniqueDays.insert(day)
+        }
 
-        var maxStreak = 1
-        var currentRunningStreak = 1
+        let sortedDays = uniqueDays.sorted(by: <)
+        var maxStreak = 0
+        var currentStreak = 0
+        var previousDay: Date?
 
-        for i in 1..<reviewDays.count {
-            let prev = reviewDays[i - 1]
-            let curr = reviewDays[i]
-
-            if let nextDay = calendar.date(byAdding: .day, value: 1, to: prev), nextDay == curr {
-                currentRunningStreak += 1
-                maxStreak = max(maxStreak, currentRunningStreak)
+        for day in sortedDays {
+            if let prev = previousDay {
+                if let nextExpected = calendar.date(byAdding: .day, value: 1, to: prev),
+                   calendar.isDate(day, inSameDayAs: nextExpected) {
+                    currentStreak += 1
+                } else {
+                    currentStreak = 1
+                }
             } else {
-                currentRunningStreak = 1
+                currentStreak = 1
             }
+            previousDay = day
+            maxStreak = max(maxStreak, currentStreak)
         }
 
         return maxStreak
-    }
-}
-
-// MARK: - Focused Emoji Input Field (Auto-focuses System Keyboard)
-
-private struct EmojiInputField: UIViewRepresentable {
-    @Binding var text: String
-    var onEmojiSelected: (String) -> Void
-
-    func makeUIView(context: Context) -> UITextField {
-        let textField = UITextField()
-        textField.textAlignment = .center
-        textField.font = UIFont.systemFont(ofSize: 44)
-        textField.tintColor = .clear
-        textField.delegate = context.coordinator
-        DispatchQueue.main.async {
-            textField.becomeFirstResponder()
-        }
-        return textField
-    }
-
-    func updateUIView(_ uiView: UITextField, context: Context) {
-        uiView.text = text
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    final class Coordinator: NSObject, UITextFieldDelegate {
-        var parent: EmojiInputField
-
-        init(_ parent: EmojiInputField) {
-            self.parent = parent
-        }
-
-        func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
-            guard !string.isEmpty else { return true }
-
-            // Extract the last entered glyph / emoji
-            let candidate = String(string.suffix(1))
-            parent.text = candidate
-            parent.onEmojiSelected(candidate)
-            return false
-        }
     }
 }
 
