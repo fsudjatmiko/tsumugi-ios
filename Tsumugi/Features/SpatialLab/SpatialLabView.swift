@@ -53,22 +53,17 @@ struct SpatialLabView: View {
             .navigationTitle("Spatial Lab")
             .navigationBarTitleDisplayMode(.large)
             .fullScreenCover(isPresented: $showingARSheet) {
-                NavigationStack {
-                    SpatialAirDrawingView(
-                        character: activeCharacter,
-                        onComplete: {
-                            showingARSheet = false
+                SpatialAirDrawingView(
+                    character: activeCharacter,
+                    onComplete: {
+                        if !unlockedCards.isEmpty {
+                            selectedCharacterIndex = (selectedCharacterIndex + 1) % unlockedCards.count
                         }
-                    )
-                    .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button("Close") {
-                                showingARSheet = false
-                            }
-                            .tint(.white)
-                        }
+                    },
+                    onClose: {
+                        showingARSheet = false
                     }
-                }
+                )
             }
         }
     }

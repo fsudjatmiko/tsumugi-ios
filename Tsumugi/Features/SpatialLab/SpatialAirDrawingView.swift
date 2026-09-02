@@ -2,73 +2,55 @@ import ARKit
 import RealityKit
 import SwiftUI
 
-/// AR air-tracing view placing a 3D character in spatial space and allowing interactive finger tracing.
+/// AR surface-tracing view projecting flat Japanese character stencils onto real-world flat surfaces and elevating them into 3D on mastery.
 struct SpatialAirDrawingView: View {
     let character: String
-    let onComplete: () -> Void
+    var onComplete: (() -> Void)? = nil
+    var onClose: (() -> Void)? = nil
 
-    @State private var tracedPointsCount: Int = 0
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var hasDetectedSurface: Bool = false
+    @State private var isSurfaceLocked: Bool = false
+    @State private var drawnPoints: [SIMD3<Float>] = []
     @State private var isSuccess: Bool = false
-    @State private var feedbackTrigger: Int = 0
-    @State private var activeAnchor: AnchorEntity?
+    @State private var strokeClearTrigger: Int = 0
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             #if targetEnvironment(simulator)
             simulatorFallbackView
             #else
-            if #available(iOS 18.0, *) {
-                arRealityView
-            } else {
-                simulatorFallbackView
-            }
-            #endif
-
-            hudOverlay
-        }
-        .sensoryFeedback(.success, trigger: feedbackTrigger)
-    }
-
-    // MARK: - AR RealityView (Device)
-
-    #if !targetEnvironment(simulator)
-    @available(iOS 18.0, *)
-    @ViewBuilder
-    private var arRealityView: some View {
-        RealityView { content in
-            let anchor = AnchorEntity(.camera)
-            // Position 0.5m in front of the camera
-            anchor.position = [0, 0, -0.5]
-
-            let kanjiEntity = SpatialKanjiGenerator.shared.createCharacterEntity(
+            ARAirDrawingCanvas(
                 character: character,
-                isHighlighted: isSuccess
-            )
-            kanjiEntity.name = "TargetKanji"
-            anchor.addChild(kanjiEntity)
-            content.add(anchor)
-            activeAnchor = anchor
-        } update: { content in
-            if let anchor = activeAnchor,
-               let target = anchor.findEntity(named: "TargetKanji") as? ModelEntity {
-                target.model?.materials = [
-                    SpatialKanjiGenerator.shared.makeMaterial(isHighlighted: isSuccess)
-                ]
-            }
-        }
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    handleTraceGesture(at: value.location)
-                }
-                .onEnded { _ in
+                isSurfaceLocked: isSurfaceLocked,
+                isSuccess: isSuccess,
+                clearTrigger: strokeClearTrigger,
+                hasDetectedSurface: $hasDetectedSurface,
+                drawnPoints: $drawnPoints,
+                onPlaneTapped: {
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.75)) {
+                        isSurfaceLocked = true
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    }
+                },
+                onTracePoint: { strokePoint in
+                    drawnPoints.append(strokePoint)
+                    checkCompletion()
+                },
+                onTraceEnd: {
                     checkCompletion()
                 }
-        )
-    }
-    #endif
+            )
+            .ignoresSafeArea()
+            #endif
 
-    // MARK: - Simulator & iOS 17 Fallback View
+            // Dynamic 3-Stage Glassmorphic HUD Overlay
+            hudOverlay
+        }
+    }
+
+    // MARK: - Simulator Fallback View
 
     private var simulatorFallbackView: some View {
         ZStack {
@@ -90,7 +72,7 @@ struct SpatialAirDrawingView: View {
                         .shadow(color: isSuccess ? Color.tsumugiChartreuse.opacity(0.8) : .clear, radius: 12)
                 }
 
-                Text("Spatial 3D Simulation Canvas")
+                Text("Surface Tracing Simulation (Simulator)")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -98,7 +80,8 @@ struct SpatialAirDrawingView: View {
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in
-                    tracedPointsCount += 1
+                    drawnPoints.append(SIMD3<Float>(0, 0, 0))
+                    checkCompletion()
                 }
                 .onEnded { _ in
                     checkCompletion()
@@ -109,82 +92,238 @@ struct SpatialAirDrawingView: View {
     // MARK: - HUD Overlay
 
     private var hudOverlay: some View {
-        VStack {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("3D Air Tracing")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                    Text("Trace the character path in 3D space")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.8))
+        VStack(spacing: 0) {
+            // Top Navigation Bar
+            HStack(spacing: 12) {
+                Button {
+                    if let onClose = onClose {
+                        onClose()
+                    } else {
+                        dismiss()
+                    }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Color.tsumugiTextPrimary)
+                        .frame(width: 36, height: 36)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .overlay(
+                            Circle()
+                                .stroke(Color.tsumugiCardBorder, lineWidth: 1)
+                        )
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close AR Canvas")
 
                 Spacer()
 
-                if isSuccess {
-                    Label("Completed!", systemImage: "checkmark.circle.fill")
+                // Stage Status Badge
+                HStack(spacing: 6) {
+                    if isSuccess {
+                        Image(systemName: "sparkles")
+                            .foregroundStyle(Color.tsumugiSpaceIndigo)
+                        Text("3D Mastered")
+                            .font(.caption)
+                            .fontWeight(.bold)
+                            .foregroundStyle(Color.tsumugiSpaceIndigo)
+                    } else if isSurfaceLocked {
+                        Image(systemName: "pencil.and.outline")
+                            .foregroundStyle(Color.tsumugiDustyDenim)
+                        Text("Tracing Mode")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Color.tsumugiTextPrimary)
+                    } else if hasDetectedSurface {
+                        Image(systemName: "viewfinder")
+                            .foregroundStyle(Color.tsumugiChartreuse)
+                        Text("Surface Ready")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Color.tsumugiTextPrimary)
+                    } else {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                        Text("Scanning Surface...")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundStyle(Color.tsumugiTextPrimary)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(isSuccess ? Color.tsumugiChartreuse : Color.clear)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(
+                    Capsule()
+                        .stroke(Color.tsumugiCardBorder, lineWidth: 1)
+                )
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+
+            // Dynamic Stage-Aware Guiding Instruction Card
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Image(systemName: instructionIcon)
+                        .font(.subheadline)
+                        .foregroundStyle(isSuccess ? Color.tsumugiChartreuse : Color.tsumugiDustyDenim)
+
+                    Text(instructionTitle)
                         .font(.subheadline)
                         .fontWeight(.bold)
-                        .foregroundStyle(Color.tsumugiChartreuse)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.tsumugiSpaceIndigo.opacity(0.8))
-                        .clipShape(Capsule())
+                        .foregroundStyle(Color.tsumugiTextPrimary)
                 }
+
+                Text(instructionSubtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
-            .padding(16)
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.tsumugiCardBorder, lineWidth: 1)
+            )
             .padding(.horizontal, 16)
-            .padding(.top, 8)
+            .padding(.top, 10)
 
             Spacer()
 
-            if isSuccess {
-                Button(action: onComplete) {
-                    Text("Continue")
-                        .fontWeight(.bold)
-                        .frame(maxWidth: .infinity)
+            // Bottom Action Controls
+            if isSurfaceLocked {
+                HStack(spacing: 16) {
+                    Button {
+                        clearStrokes()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.counterclockwise")
+                            Text("Reset")
+                        }
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundStyle(Color.tsumugiTextPrimary)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 12)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.tsumugiCardBorder, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer()
+
+                    if isSuccess {
+                        Button {
+                            if let onComplete = onComplete {
+                                onComplete()
+                            } else {
+                                dismiss()
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text("Next Kana")
+                                Image(systemName: "arrow.right")
+                            }
+                            .font(.subheadline)
+                            .fontWeight(.bold)
+                            .foregroundStyle(Color.tsumugiSpaceIndigo)
+                            .padding(.horizontal, 22)
+                            .padding(.vertical, 12)
+                            .background(Color.tsumugiChartreuse, in: Capsule())
+                            .shadow(color: Color.tsumugiChartreuse.opacity(0.4), radius: 8, y: 3)
+                        }
+                        .buttonStyle(.plain)
+                        .transition(.scale.combined(with: .opacity))
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(Color.tsumugiChartreuse)
-                .foregroundStyle(Color.tsumugiSpaceIndigo)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .padding(.horizontal, 20)
+                .padding(.bottom, 28)
+            } else if hasDetectedSurface {
+                // Prompt to Lock
+                Button {
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.75)) {
+                        isSurfaceLocked = true
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "plus.circle.fill")
+                        Text("Place '\(character)' on Surface")
+                            .fontWeight(.bold)
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(Color.tsumugiSpaceIndigo)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 14)
+                    .background(Color.tsumugiChartreuse, in: Capsule())
+                    .shadow(color: Color.tsumugiChartreuse.opacity(0.4), radius: 8, y: 3)
+                }
+                .buttonStyle(.plain)
+                .padding(.bottom, 32)
             }
         }
     }
 
-    // MARK: - Gesture Handling
+    // MARK: - Instruction State Helpers
 
-    private func handleTraceGesture(at location: CGPoint) {
-        tracedPointsCount += 1
-        #if !targetEnvironment(simulator)
-        if let anchor = activeAnchor, tracedPointsCount % 3 == 0 {
-            // Project screen point to local 3D offset
-            let normalizedX = Float(location.x / UIScreen.main.bounds.width - 0.5) * 0.3
-            let normalizedY = -Float(location.y / UIScreen.main.bounds.height - 0.5) * 0.3
-            let trailNode = SpatialKanjiGenerator.shared.createTrailPointEntity(
-                position: [normalizedX, normalizedY, 0.02]
-            )
-            anchor.addChild(trailNode)
+    private var instructionIcon: String {
+        if isSuccess {
+            return "checkmark.circle.fill"
+        } else if isSurfaceLocked {
+            return "hand.draw.fill"
+        } else if hasDetectedSurface {
+            return "hand.tap.fill"
+        } else {
+            return "iphone.radiowaves.left.and.right"
         }
-        #endif
+    }
+
+    private var instructionTitle: String {
+        if isSuccess {
+            return "Mastered in 3D!"
+        } else if isSurfaceLocked {
+            return "Trace '\(character)' on Surface"
+        } else if hasDetectedSurface {
+            return "Flat Surface Detected"
+        } else {
+            return "Scanning for Flat Surface"
+        }
+    }
+
+    private var instructionSubtitle: String {
+        if isSuccess {
+            return "The character has lifted into a full 3D sculpture on your desk."
+        } else if isSurfaceLocked {
+            return "Follow the stroke guide dots to draw the character on your table."
+        } else if hasDetectedSurface {
+            return "Tap the green reticle or button below to project the '\(character)' template."
+        } else {
+            return "Slowly move your iPhone around to find a flat table, desk, or floor."
+        }
+    }
+
+    // MARK: - Actions & Completion
+
+    private func clearStrokes() {
+        drawnPoints.removeAll()
+        isSuccess = false
+        strokeClearTrigger += 1
     }
 
     private func checkCompletion() {
-        if tracedPointsCount >= 10 && !isSuccess {
+        if drawnPoints.count >= 8 && !isSuccess {
             withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
                 isSuccess = true
-                feedbackTrigger += 1
+                UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                AudioService.shared.speak(character)
             }
         }
     }
 }
 
 #Preview {
-    SpatialAirDrawingView(character: "あ", onComplete: {})
+    SpatialAirDrawingView(character: "あ")
 }

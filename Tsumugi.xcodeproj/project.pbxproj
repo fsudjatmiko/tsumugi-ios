@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		08C4AD718CE91DF5A22824CF /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = 66D0A72239FB8313236A1346 /* MLXLLM */; };
+		68B941814175A4B3350F7F12 /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = BF09301A9D03F8543E58B8EB /* MLXLMCommon */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		D35235ED304001AB00E325BA /* Tsumugi.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Tsumugi.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +28,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				08C4AD718CE91DF5A22824CF /* MLXLLM in Frameworks */,
+				68B941814175A4B3350F7F12 /* MLXLMCommon in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +72,8 @@
 			);
 			name = Tsumugi;
 			packageProductDependencies = (
+				66D0A72239FB8313236A1346 /* MLXLLM */,
+				BF09301A9D03F8543E58B8EB /* MLXLMCommon */,
 			);
 			productName = Tsumugi;
 			productReference = D35235ED304001AB00E325BA /* Tsumugi.app */;
@@ -94,6 +103,9 @@
 			);
 			mainGroup = D35235E4304001AB00E325BA;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				D31A52933046832B00573580 /* XCRemoteSwiftPackageReference "mlx-swift-examples" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D35235EE304001AB00E325BA /* Products */;
 			projectDirPath = "";
@@ -336,6 +348,30 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		D31A52933046832B00573580 /* XCRemoteSwiftPackageReference "mlx-swift-examples" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift-examples";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.29.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		66D0A72239FB8313236A1346 /* MLXLLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D31A52933046832B00573580 /* XCRemoteSwiftPackageReference "mlx-swift-examples" */;
+			productName = MLXLLM;
+		};
+		BF09301A9D03F8543E58B8EB /* MLXLMCommon */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D31A52933046832B00573580 /* XCRemoteSwiftPackageReference "mlx-swift-examples" */;
+			productName = MLXLMCommon;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = D35235E5304001AB00E325BA /* Project object */;
 }

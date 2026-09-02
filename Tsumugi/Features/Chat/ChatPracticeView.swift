@@ -1,38 +1,121 @@
 import SwiftData
 import SwiftUI
 
-/// Conversational practice interface offering offline dialogue, ruby furigana hints, translation toggles, and TTS audio.
+/// Structured breakdown of a 3-tier tutor message parsed from [JA], [ROMAJI], and [EN] tags.
+struct ParsedTutorMessage {
+    let rawText: String
+    let japanese: String
+    let romaji: String?
+    let english: String?
+
+    init(from raw: String) {
+        self.rawText = raw
+
+        var ja = ""
+        var rom: String? = nil
+        var en: String? = nil
+
+        let lines = raw.components(separatedBy: .newlines)
+        var currentSection: String? = nil
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            if trimmed.hasPrefix("[JA]:") || trimmed.hasPrefix("1. [JA]:") || trimmed.hasPrefix("[JA]") {
+                currentSection = "JA"
+                let content = trimmed.replacingOccurrences(of: #"^(?:1\.\s*)?\[JA\]:?\s*"#, with: "", options: .regularExpression)
+                if !content.isEmpty {
+                    ja += (ja.isEmpty ? "" : "\n") + content
+                }
+            } else if trimmed.hasPrefix("[ROMAJI]:") || trimmed.hasPrefix("2. [ROMAJI]:") || trimmed.hasPrefix("[ROMAJI]") {
+                currentSection = "ROMAJI"
+                let content = trimmed.replacingOccurrences(of: #"^(?:2\.\s*)?\[ROMAJI\]:?\s*"#, with: "", options: .regularExpression)
+                if !content.isEmpty {
+                    rom = (rom ?? "") + ((rom == nil || rom?.isEmpty == true) ? "" : "\n") + content
+                }
+            } else if trimmed.hasPrefix("[EN]:") || trimmed.hasPrefix("3. [EN]:") || trimmed.hasPrefix("[EN]") {
+                currentSection = "EN"
+                let content = trimmed.replacingOccurrences(of: #"^(?:3\.\s*)?\[EN\]:?\s*"#, with: "", options: .regularExpression)
+                if !content.isEmpty {
+                    en = (en ?? "") + ((en == nil || en?.isEmpty == true) ? "" : "\n") + content
+                }
+            } else if let section = currentSection, !trimmed.isEmpty {
+                switch section {
+                case "JA":
+                    ja += (ja.isEmpty ? "" : "\n") + trimmed
+                case "ROMAJI":
+                    rom = (rom ?? "") + ((rom == nil || rom?.isEmpty == true) ? "" : "\n") + trimmed
+                case "EN":
+                    en = (en ?? "") + ((en == nil || en?.isEmpty == true) ? "" : "\n") + trimmed
+                default:
+                    break
+                }
+            }
+        }
+
+        // Fallback if model omitted tags: treat entire raw output as Japanese
+        if ja.isEmpty {
+            self.japanese = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.romaji = nil
+            self.english = nil
+        } else {
+            self.japanese = ja.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.romaji = rom?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? rom?.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+            self.english = en?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? en?.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+        }
+    }
+
+    /// Strips Kana readings in parentheses for natural speech synthesis (e.g. "行(い)っても" -> "行っても").
+    var spokenJapanese: String {
+        let pattern = #"\([ぁ-んァ-ンー]+\)"#
+        let clean = japanese.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+        return clean.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// Conversational practice interface powered by on-device MLX Local AI (Qwen 2.5 1.5B 4-bit) with structured 3-tier parsing and Japanese-only TTS.
 struct ChatPracticeView: View {
-    @State private var dialogueEngine = LocalDialogueEngine()
+    @State private var chatService = MLXChatService.shared
     @State private var audioService = AudioService()
 
     @State private var messages: [ChatMessage] = []
     @State private var inputText: String = ""
     @State private var showFurigana: Bool = true
     @State private var showTranslations: Bool = true
-    @State private var currentSuggestions: [String] = []
+
+    // Pre-set scenario starters (Horizontal Scroll Chips)
+    private let scenarioStarters: [(title: String, prompt: String)] = [
+        ("Order at a Cafe ☕️", "カフェで注文したいです。(I would like to order at a cafe.)"),
+        ("Ask for Directions 🗺️", "すみません、駅はどこですか？ (Excuse me, where is the station?)"),
+        ("Introduce Yourself 👋", "はじめまして！自己紹介をしましょう。(Nice to meet you! Let's introduce ourselves.)"),
+        ("Explain JLPT N5 Grammar 📖", "JLPT N5の「〜てください」の使い方を教えてください。(Please teach me how to use '~te kudasai' in N5.)")
+    ]
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                scenarioHeader
-
-                messageList
-
-                if !currentSuggestions.isEmpty {
-                    suggestionChips
+                // Model Loading / Preparation Banner
+                if chatService.isModelLoading || !chatService.isModelReady {
+                    modelStatusBanner
                 }
 
+                // Chat Message Stream
+                messageList
+
+                // Pre-set Scenario Starter Chips
+                scenarioChipsSection
+
+                // Bottom Input Bar
                 inputBar
             }
-            .background(Color.tsumugiBackground)
-            .navigationTitle("AI Partner")
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle("Dialogue")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Toggle(isOn: $showFurigana) {
-                            Label("Show Furigana", systemImage: "character.textbox")
+                            Label("Show Romaji / Furigana", systemImage: "character.textbox")
                         }
                         Toggle(isOn: $showTranslations) {
                             Label("Show English", systemImage: "globe")
@@ -44,47 +127,66 @@ struct ChatPracticeView: View {
                 }
             }
             .task {
+                if !chatService.isModelReady && !chatService.isModelLoading {
+                    await chatService.prepareModel()
+                }
+
                 if messages.isEmpty {
-                    loadInitialScenario()
+                    loadInitialGreeting()
                 }
             }
         }
     }
 
-    // MARK: - Scenario Header
+    // MARK: - Model Status Banner
 
-    private var scenarioHeader: some View {
-        HStack {
-            Image(systemName: "sparkles")
-                .foregroundStyle(Color.tsumugiDustyDenim)
+    private var modelStatusBanner: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                if chatService.isModelLoading {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                } else {
+                    Image(systemName: "sparkles")
+                        .foregroundStyle(Color.tsumugiDustyDenim)
+                }
 
-            Text(dialogueEngine.activeScenario?.title ?? "Conversation Practice")
-                .font(.footnote)
-                .fontWeight(.medium)
-                .foregroundStyle(Color.tsumugiSpaceIndigo)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(chatService.statusMessage)
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color.tsumugiTextPrimary)
 
-            Spacer()
-
-            Menu {
-                ForEach(dialogueEngine.availableScenarios) { scenario in
-                    Button(scenario.title) {
-                        dialogueEngine.selectScenario(scenario)
-                        loadInitialScenario()
+                    if chatService.isModelLoading {
+                        ProgressView(value: max(0.05, chatService.downloadProgress))
+                            .tint(Color.tsumugiDustyDenim)
                     }
                 }
-            } label: {
-                HStack(spacing: 4) {
-                    Text("Change")
-                        .font(.caption)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption2)
+
+                Spacer()
+
+                if !chatService.isModelReady && !chatService.isModelLoading {
+                    Button("Retry") {
+                        Task {
+                            await chatService.prepareModel()
+                        }
+                    }
+                    .font(.caption2)
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .tint(Color.tsumugiDustyDenim)
                 }
-                .foregroundStyle(Color.tsumugiDustyDenim)
             }
+            .padding(12)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.tsumugiCardBorder, lineWidth: 1)
+            )
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(Color.tsumugiCardSurface)
     }
 
     // MARK: - Message List
@@ -98,7 +200,7 @@ struct ChatPracticeView: View {
                             .id(message.id)
                     }
 
-                    if dialogueEngine.isThinking {
+                    if chatService.isGenerating && (messages.last?.isUser ?? false) {
                         typingIndicator
                             .id("typing")
                     }
@@ -113,6 +215,11 @@ struct ChatPracticeView: View {
                     }
                 }
             }
+            .onChange(of: messages.last?.text) { _, _ in
+                if let last = messages.last {
+                    proxy.scrollTo(last.id, anchor: .bottom)
+                }
+            }
         }
     }
 
@@ -121,53 +228,76 @@ struct ChatPracticeView: View {
     private func messageBubble(_ message: ChatMessage) -> some View {
         HStack(alignment: .bottom, spacing: 8) {
             if message.isUser {
-                Spacer()
+                Spacer(minLength: 40)
             }
 
-            VStack(alignment: message.isUser ? .trailing : .leading, spacing: 6) {
+            VStack(alignment: message.isUser ? .trailing : .leading, spacing: 8) {
                 if message.isUser {
+                    // Learner Bubble
                     Text(message.text)
                         .font(.body)
                         .foregroundStyle(.white)
                 } else {
-                    FuriganaText(
-                        markup: message.furiganaMarkup,
-                        showFurigana: showFurigana,
-                        baseFontSize: 18
-                    )
-                }
+                    // Tutor 3-Tier Bubble
+                    let parsed = ParsedTutorMessage(from: message.text)
 
-                if showTranslations && !message.englishTranslation.isEmpty {
-                    Text(message.englishTranslation)
-                        .font(.caption)
-                        .foregroundStyle(message.isUser ? .white.opacity(0.8) : .secondary)
+                    // 1. Japanese Primary Text (Headline / Body)
+                    Text(parsed.japanese)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Color.tsumugiTextPrimary)
+
+                    // 2. Romaji Sub-line (if available and enabled)
+                    if showFurigana, let romaji = parsed.romaji, !romaji.isEmpty {
+                        Text(romaji)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    // 3. English Meaning Box (if available and enabled)
+                    if showTranslations, let english = parsed.english, !english.isEmpty {
+                        Text(english)
+                            .font(.subheadline)
+                            .foregroundStyle(Color.tsumugiTextPrimary.opacity(0.85))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color(uiColor: .systemGroupedBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
                 }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(message.isUser ? Color.tsumugiDustyDenim : Color.tsumugiCardSurface)
+                    .fill(message.isUser ? Color.tsumugiDustyDenim : Color(uiColor: .secondarySystemGroupedBackground))
                     .overlay(
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(message.isUser ? Color.clear : Color.tsumugiFrozenWater.opacity(0.4), lineWidth: 1)
+                            .stroke(message.isUser ? Color.clear : Color.tsumugiCardBorder, lineWidth: 1)
                     )
             )
 
             if !message.isUser {
+                let parsed = ParsedTutorMessage(from: message.text)
+                let textToSpeak = parsed.spokenJapanese.isEmpty ? parsed.japanese : parsed.spokenJapanese
+
                 Button {
-                    audioService.speak(message.text)
+                    audioService.speak(textToSpeak)
                 } label: {
                     Image(systemName: "speaker.wave.2.fill")
                         .font(.caption)
                         .foregroundStyle(Color.tsumugiDustyDenim)
                         .frame(width: 32, height: 32)
-                        .background(Color.tsumugiFrozenWater.opacity(0.4))
+                        .background(Color(uiColor: .secondarySystemGroupedBackground))
                         .clipShape(Circle())
+                        .overlay(
+                            Circle()
+                                .stroke(Color.tsumugiCardBorder, lineWidth: 1)
+                        )
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Pronounce Japanese text only")
 
-                Spacer()
+                Spacer(minLength: 40)
             }
         }
     }
@@ -175,10 +305,10 @@ struct ChatPracticeView: View {
     // MARK: - Typing Indicator
 
     private var typingIndicator: some View {
-        HStack {
+        HStack(spacing: 8) {
             ProgressView()
-                .scaleEffect(0.8)
-            Text("Tsumugi is thinking...")
+                .scaleEffect(0.75)
+            Text("Tsumugi is typing...")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
@@ -186,25 +316,30 @@ struct ChatPracticeView: View {
         .padding(.horizontal, 16)
     }
 
-    // MARK: - Suggestion Chips
+    // MARK: - Scenario Chips
 
-    private var suggestionChips: some View {
+    private var scenarioChipsSection: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(currentSuggestions, id: \.self) { suggestion in
+                ForEach(scenarioStarters, id: \.title) { item in
                     Button {
-                        sendUserMessage(suggestion)
+                        sendMessage(item.prompt)
                     } label: {
-                        Text(suggestion)
+                        Text(item.title)
                             .font(.caption)
                             .fontWeight(.medium)
-                            .foregroundStyle(Color.tsumugiSpaceIndigo)
+                            .foregroundStyle(Color.tsumugiTextPrimary)
                             .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Color.tsumugiFrozenWater.opacity(0.4))
+                            .padding(.vertical, 8)
+                            .background(Color(uiColor: .secondarySystemGroupedBackground))
                             .clipShape(Capsule())
+                            .overlay(
+                                Capsule()
+                                    .stroke(Color.tsumugiCardBorder, lineWidth: 1)
+                            )
                     }
                     .buttonStyle(.plain)
+                    .disabled(chatService.isGenerating)
                 }
             }
             .padding(.horizontal, 16)
@@ -215,52 +350,64 @@ struct ChatPracticeView: View {
     // MARK: - Input Bar
 
     private var inputBar: some View {
-        HStack(spacing: 12) {
-            TextField("Type in Japanese or Romaji...", text: $inputText)
-                .textFieldStyle(.plain)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(Color.tsumugiCardSurface)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(Color.tsumugiFrozenWater.opacity(0.5), lineWidth: 1)
-                )
+        VStack(spacing: 0) {
+            Divider()
 
-            Button {
-                sendUserMessage(inputText)
-            } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 32))
-                    .foregroundStyle(inputText.trimmingCharacters(in: .whitespaces).isEmpty ? Color.secondary.opacity(0.4) : Color.tsumugiDustyDenim)
+            HStack(spacing: 12) {
+                TextField("Message Tsumugi in Japanese or Romaji...", text: $inputText)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(Color.tsumugiCardBorder, lineWidth: 1)
+                    )
+                    .disabled(chatService.isGenerating)
+                    .onSubmit {
+                        sendMessage(inputText)
+                    }
+
+                Button {
+                    sendMessage(inputText)
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 32))
+                        .foregroundStyle(
+                            inputText.trimmingCharacters(in: .whitespaces).isEmpty || chatService.isGenerating
+                                ? Color.secondary.opacity(0.3)
+                                : Color.tsumugiDustyDenim
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty || chatService.isGenerating)
             }
-            .buttonStyle(.plain)
-            .disabled(inputText.trimmingCharacters(in: .whitespaces).isEmpty)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Color(uiColor: .systemGroupedBackground))
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Color.tsumugiBackground)
     }
 
-    // MARK: - Logic & Turn Execution
+    // MARK: - Actions & Dialogue Flow
 
-    private func loadInitialScenario() {
-        guard let scenario = dialogueEngine.activeScenario else { return }
-        messages.removeAll()
-
-        let initial = ChatMessage(
-            text: scenario.initialAIMessage.plainJapanese,
-            furiganaMarkup: scenario.initialAIMessage.furiganaMarkup,
-            englishTranslation: scenario.initialAIMessage.englishTranslation,
+    private func loadInitialGreeting() {
+        let greeting = ChatMessage(
+            text: """
+            [JA]: こんにちは！つむぎです。日本語(にほんご)の練習(れんしゅう)をはじめましょう！何(なに)について話(はな)しますか？
+            [ROMAJI]: Konnichiwa! Tsumugi desu. Nihongo no renshuu o hajimemashou! Nani ni tsuite hanashimasu ka?
+            [EN]: Hello! I'm Tsumugi. Let's start practicing Japanese! What would you like to talk about?
+            """,
+            furiganaMarkup: "",
+            englishTranslation: "",
             isUser: false
         )
-        messages.append(initial)
-        currentSuggestions = scenario.starterSuggestions
+        messages.append(greeting)
     }
 
-    private func sendUserMessage(_ text: String) {
+    private func sendMessage(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty, !chatService.isGenerating else { return }
 
         let userMsg = ChatMessage(
             text: trimmed,
@@ -269,18 +416,25 @@ struct ChatPracticeView: View {
         )
         messages.append(userMsg)
         inputText = ""
-        currentSuggestions = []
 
         Task {
-            let response = await dialogueEngine.respond(to: trimmed)
+            // Prepare placeholder for streaming response
+            let aiMessageId = UUID().uuidString
             let aiMsg = ChatMessage(
-                text: response.plainJapanese,
-                furiganaMarkup: response.furiganaMarkup,
-                englishTranslation: response.englishTranslation,
+                id: aiMessageId,
+                text: "",
+                furiganaMarkup: "",
+                englishTranslation: "",
                 isUser: false
             )
             messages.append(aiMsg)
-            currentSuggestions = response.followUpSuggestions
+
+            let stream = await chatService.send(prompt: trimmed, chatHistory: messages)
+            for await token in stream {
+                if let index = messages.firstIndex(where: { $0.id == aiMessageId }) {
+                    messages[index].text += token
+                }
+            }
         }
     }
 }
