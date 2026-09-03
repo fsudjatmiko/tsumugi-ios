@@ -1,18 +1,18 @@
 import SwiftData
 import SwiftUI
 
-/// Structured breakdown of a 3-tier tutor message parsed from [JA], [ROMAJI], and [EN] tags.
+/// Structured breakdown of a tutor message with deterministic, offline linguistic processing for Romaji and Furigana.
 struct ParsedTutorMessage {
     let rawText: String
     let japanese: String
     let romaji: String?
     let english: String?
+    let rubySegments: [RubySegment]
 
     init(from raw: String) {
         self.rawText = raw
 
         var ja = ""
-        var rom: String? = nil
         var en: String? = nil
 
         let lines = raw.components(separatedBy: .newlines)
@@ -27,24 +27,19 @@ struct ParsedTutorMessage {
                 if !content.isEmpty {
                     ja += (ja.isEmpty ? "" : "\n") + content
                 }
-            } else if trimmed.hasPrefix("[ROMAJI]:") || trimmed.hasPrefix("2. [ROMAJI]:") || trimmed.hasPrefix("[ROMAJI]") {
-                currentSection = "ROMAJI"
-                let content = trimmed.replacingOccurrences(of: #"^(?:2\.\s*)?\[ROMAJI\]:?\s*"#, with: "", options: .regularExpression)
-                if !content.isEmpty {
-                    rom = (rom ?? "") + ((rom == nil || rom?.isEmpty == true) ? "" : "\n") + content
-                }
-            } else if trimmed.hasPrefix("[EN]:") || trimmed.hasPrefix("3. [EN]:") || trimmed.hasPrefix("[EN]") {
+            } else if trimmed.hasPrefix("[EN]:") || trimmed.hasPrefix("2. [EN]:") || trimmed.hasPrefix("3. [EN]:") || trimmed.hasPrefix("[EN]") {
                 currentSection = "EN"
-                let content = trimmed.replacingOccurrences(of: #"^(?:3\.\s*)?\[EN\]:?\s*"#, with: "", options: .regularExpression)
+                let content = trimmed.replacingOccurrences(of: #"^(?:[23]\.\s*)?\[EN\]:?\s*"#, with: "", options: .regularExpression)
                 if !content.isEmpty {
                     en = (en ?? "") + ((en == nil || en?.isEmpty == true) ? "" : "\n") + content
                 }
+            } else if trimmed.hasPrefix("[ROMAJI]:") || trimmed.hasPrefix("2. [ROMAJI]:") {
+                // Ignore any LLM-hallucinated romaji section to ensure deterministic CoreFoundation transliteration
+                currentSection = nil
             } else if let section = currentSection, !trimmed.isEmpty {
                 switch section {
                 case "JA":
                     ja += (ja.isEmpty ? "" : "\n") + trimmed
-                case "ROMAJI":
-                    rom = (rom ?? "") + ((rom == nil || rom?.isEmpty == true) ? "" : "\n") + trimmed
                 case "EN":
                     en = (en ?? "") + ((en == nil || en?.isEmpty == true) ? "" : "\n") + trimmed
                 default:
@@ -53,23 +48,29 @@ struct ParsedTutorMessage {
             }
         }
 
-        // Fallback if model omitted tags: treat entire raw output as Japanese
-        if ja.isEmpty {
-            self.japanese = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            self.romaji = nil
-            self.english = nil
+        // Clean any residual accidental brackets from the Japanese sentence
+        let extractedJa = ja.isEmpty ? raw.trimmingCharacters(in: .whitespacesAndNewlines) : ja.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedJa = extractedJa
+            .replacingOccurrences(of: #"\([ぁ-んァ-ンーa-zA-Z\s]+\)"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"（[ぁ-んァ-ンーa-zA-Z\s]+）"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        self.japanese = cleanedJa
+        self.english = en?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? en?.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+
+        // Deterministic, offline Romaji generation via CoreFoundation tokenizer
+        if !cleanedJa.isEmpty {
+            self.romaji = JapaneseLinguisticHelper.toRomaji(from: cleanedJa)
+            self.rubySegments = JapaneseLinguisticHelper.extractRubySegments(from: cleanedJa)
         } else {
-            self.japanese = ja.trimmingCharacters(in: .whitespacesAndNewlines)
-            self.romaji = rom?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? rom?.trimmingCharacters(in: .whitespacesAndNewlines) : nil
-            self.english = en?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? en?.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+            self.romaji = nil
+            self.rubySegments = []
         }
     }
 
-    /// Strips Kana readings in parentheses for natural speech synthesis (e.g. "行(い)っても" -> "行っても").
+    /// Pure clean Japanese string for speech synthesis
     var spokenJapanese: String {
-        let pattern = #"\([ぁ-んァ-ンー]+\)"#
-        let clean = japanese.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
-        return clean.trimmingCharacters(in: .whitespacesAndNewlines)
+        japanese
     }
 }
 
@@ -243,7 +244,8 @@ struct ChatPracticeView: View {
 
                     // 1. Japanese Primary Text with Native Ruby Typography
                     RubyTextView(
-                        text: parsed.japanese,
+                        segments: parsed.rubySegments,
+                        showFurigana: showFurigana,
                         font: .systemFont(ofSize: 17, weight: .semibold),
                         textColor: UIColor(Color.tsumugiTextPrimary),
                         rubyFont: .systemFont(ofSize: 10, weight: .regular),
@@ -252,7 +254,7 @@ struct ChatPracticeView: View {
                     )
                     .fixedSize(horizontal: false, vertical: true)
 
-                    // 2. Romaji Sub-line (if available and enabled)
+                    // 2. Romaji Sub-line (deterministic CoreFoundation transliteration)
                     if showFurigana, let romaji = parsed.romaji, !romaji.isEmpty {
                         Text(romaji)
                             .font(.caption)
@@ -260,7 +262,7 @@ struct ChatPracticeView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
-                    // 3. English Meaning Box (if available and enabled)
+                    // 3. English Meaning Box (multiline without truncation)
                     if showTranslations, let english = parsed.english, !english.isEmpty {
                         Text(english)
                             .font(.subheadline)
@@ -404,8 +406,7 @@ struct ChatPracticeView: View {
     private func loadInitialGreeting() {
         let greeting = ChatMessage(
             text: """
-            [JA]: こんにちは！つむぎです。日本語(にほんご)の練習(れんしゅう)をはじめましょう！何(なに)について話(はな)しますか？
-            [ROMAJI]: Konnichiwa! Tsumugi desu. Nihongo no renshuu o hajimemashou! Nani ni tsuite hanashimasu ka?
+            [JA]: こんにちは！つむぎです。日本語の練習をはじめましょう！何について話しますか？
             [EN]: Hello! I'm Tsumugi. Let's start practicing Japanese! What would you like to talk about?
             """,
             furiganaMarkup: "",

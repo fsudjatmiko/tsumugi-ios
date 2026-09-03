@@ -2,8 +2,10 @@ import SwiftUI
 import UIKit
 
 /// Component that renders Japanese text with native CoreText Ruby (furigana) annotations directly above Kanji characters.
+/// Can be initialized with a pre-tokenized array of `RubySegment` or with plain Japanese text parsed automatically via `JapaneseLinguisticHelper`.
 public struct RubyTextView: UIViewRepresentable {
-    public let text: String
+    public let segments: [RubySegment]
+    public let showFurigana: Bool
     public let font: UIFont
     public let textColor: UIColor
     public let rubyFont: UIFont
@@ -11,14 +13,36 @@ public struct RubyTextView: UIViewRepresentable {
     public let lineSpacing: CGFloat
 
     public init(
-        text: String,
-        font: UIFont = .systemFont(ofSize: 17, weight: .medium),
+        segments: [RubySegment],
+        showFurigana: Bool = true,
+        font: UIFont = .systemFont(ofSize: 17, weight: .semibold),
         textColor: UIColor = UIColor(Color.tsumugiTextPrimary),
         rubyFont: UIFont = .systemFont(ofSize: 10, weight: .regular),
         rubyColor: UIColor = .secondaryLabel,
         lineSpacing: CGFloat = 6
     ) {
-        self.text = text
+        self.segments = segments
+        self.showFurigana = showFurigana
+        self.font = font
+        self.textColor = textColor
+        self.rubyFont = rubyFont
+        self.rubyColor = rubyColor
+        self.lineSpacing = lineSpacing
+    }
+
+    public init(
+        text: String,
+        showFurigana: Bool = true,
+        font: UIFont = .systemFont(ofSize: 17, weight: .semibold),
+        textColor: UIColor = UIColor(Color.tsumugiTextPrimary),
+        rubyFont: UIFont = .systemFont(ofSize: 10, weight: .regular),
+        rubyColor: UIColor = .secondaryLabel,
+        lineSpacing: CGFloat = 6
+    ) {
+        let clean = text.replacingOccurrences(of: #"\([ぁ-んァ-ンー]+\)"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.segments = JapaneseLinguisticHelper.extractRubySegments(from: clean)
+        self.showFurigana = showFurigana
         self.font = font
         self.textColor = textColor
         self.rubyFont = rubyFont
@@ -38,7 +62,8 @@ public struct RubyTextView: UIViewRepresentable {
 
     public func updateUIView(_ uiView: RubyContainerView, context: Context) {
         uiView.update(
-            text: text,
+            segments: segments,
+            showFurigana: showFurigana,
             font: font,
             textColor: textColor,
             rubyFont: rubyFont,
@@ -74,7 +99,8 @@ public final class RubyContainerView: UIView {
     }
 
     public func update(
-        text: String,
+        segments: [RubySegment],
+        showFurigana: Bool,
         font: UIFont,
         textColor: UIColor,
         rubyFont: UIFont,
@@ -82,7 +108,8 @@ public final class RubyContainerView: UIView {
         lineSpacing: CGFloat
     ) {
         self.attributedString = Self.buildRubyAttributedString(
-            from: text,
+            from: segments,
+            showFurigana: showFurigana,
             font: font,
             textColor: textColor,
             rubyFont: rubyFont,
@@ -151,7 +178,8 @@ public final class RubyContainerView: UIView {
     // MARK: - CoreText Ruby Builder
 
     public static func buildRubyAttributedString(
-        from input: String,
+        from segments: [RubySegment],
+        showFurigana: Bool,
         font: UIFont,
         textColor: UIColor,
         rubyFont: UIFont,
@@ -163,7 +191,7 @@ public final class RubyContainerView: UIView {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = lineSpacing
         paragraphStyle.lineBreakMode = .byWordWrapping
-        paragraphStyle.lineHeightMultiple = 1.35
+        paragraphStyle.lineHeightMultiple = showFurigana ? 1.35 : 1.1
 
         let baseAttributes: [NSAttributedString.Key: Any] = [
             .font: font,
@@ -171,56 +199,28 @@ public final class RubyContainerView: UIView {
             .paragraphStyle: paragraphStyle
         ]
 
-        // Match patterns like "日本語(にほんご)" or "行(い)"
-        // Captures (Kanji)(Kana)
-        let pattern = #"([一-龯々〆ヵヶ]+)\(([ぁ-んァ-ンー]+)\)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return NSAttributedString(string: input, attributes: baseAttributes)
-        }
+        for segment in segments {
+            if showFurigana, let ruby = segment.ruby, !ruby.isEmpty {
+                var unmanagedRuby: [Unmanaged<CFString>?] = [
+                    .passRetained(ruby as CFString),
+                    nil,
+                    nil,
+                    nil
+                ]
 
-        let nsInput = input as NSString
-        var lastLocation = 0
-        let matches = regex.matches(in: input, options: [], range: NSRange(location: 0, length: nsInput.length))
+                let rubyAnnotation: CTRubyAnnotation = CTRubyAnnotationCreate(
+                    .auto,
+                    .auto,
+                    0.5,
+                    &unmanagedRuby
+                )
 
-        for match in matches {
-            // Append preceding text without ruby
-            if match.range.location > lastLocation {
-                let precedingRange = NSRange(location: lastLocation, length: match.range.location - lastLocation)
-                let precedingText = nsInput.substring(with: precedingRange)
-                result.append(NSAttributedString(string: precedingText, attributes: baseAttributes))
+                var kanjiAttributes = baseAttributes
+                kanjiAttributes[kCTRubyAnnotationAttributeName as NSAttributedString.Key] = rubyAnnotation
+                result.append(NSAttributedString(string: segment.text, attributes: kanjiAttributes))
+            } else {
+                result.append(NSAttributedString(string: segment.text, attributes: baseAttributes))
             }
-
-            // Extract Kanji and Ruby reading
-            let kanji = nsInput.substring(with: match.range(at: 1))
-            let ruby = nsInput.substring(with: match.range(at: 2))
-
-            // Create CTRubyAnnotation using Unmanaged<CFString> array
-            var unmanagedRuby: [Unmanaged<CFString>?] = [
-                .passRetained(ruby as CFString),
-                nil,
-                nil,
-                nil
-            ]
-
-            let rubyAnnotation: CTRubyAnnotation = CTRubyAnnotationCreate(
-                .auto,
-                .auto,
-                0.5,
-                &unmanagedRuby
-            )
-
-            var kanjiAttributes = baseAttributes
-            kanjiAttributes[kCTRubyAnnotationAttributeName as NSAttributedString.Key] = rubyAnnotation
-
-            result.append(NSAttributedString(string: kanji, attributes: kanjiAttributes))
-
-            lastLocation = match.range.location + match.range.length
-        }
-
-        // Append remaining text
-        if lastLocation < nsInput.length {
-            let remainingText = nsInput.substring(from: lastLocation)
-            result.append(NSAttributedString(string: remainingText, attributes: baseAttributes))
         }
 
         return result
@@ -230,7 +230,7 @@ public final class RubyContainerView: UIView {
 #Preview {
     VStack(spacing: 24) {
         RubyTextView(
-            text: "こんにちは！私(わたし)は日本語(にほんご)を勉強(べんきょう)しています。学校(がっこう)へ行(い)きます。",
+            text: "友達とカフェで昼ご飯を食べてもいいですか？",
             font: .systemFont(ofSize: 18, weight: .semibold),
             lineSpacing: 8
         )
