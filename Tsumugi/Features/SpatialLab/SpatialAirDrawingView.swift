@@ -1,20 +1,58 @@
 import ARKit
 import RealityKit
+import SwiftData
 import SwiftUI
 
 /// AR surface-tracing view projecting flat Japanese character stencils onto real-world flat surfaces and elevating them into 3D on mastery.
 struct SpatialAirDrawingView: View {
-    let character: String
+    @State private var activeCharacter: String
     var onComplete: (() -> Void)? = nil
     var onClose: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
 
+    @Query(
+        filter: #Predicate<CharacterCard> { card in
+            card.isUnlocked
+        },
+        sort: \CharacterCard.character,
+        order: .forward
+    )
+    private var unlockedCards: [CharacterCard]
+
     @State private var hasDetectedSurface: Bool = false
     @State private var isSurfaceLocked: Bool = false
-    @State private var drawnPoints: [SIMD3<Float>] = []
+    @State private var currentStrokeIndex: Int = 0
+    @State private var completedStrokeCount: Int = 0
     @State private var isSuccess: Bool = false
     @State private var strokeClearTrigger: Int = 0
+    @State private var showSelectorDrawer: Bool = false
+    @State private var selectorFilter: WritingCategory? = nil
+
+    init(
+        character: String,
+        onComplete: (() -> Void)? = nil,
+        onClose: (() -> Void)? = nil
+    ) {
+        self._activeCharacter = State(initialValue: character)
+        self.onComplete = onComplete
+        self.onClose = onClose
+    }
+
+    private var activeStrokeCount: Int {
+        if let card = unlockedCards.first(where: { $0.character == activeCharacter }) {
+            return card.strokeCount
+        }
+        return StrokeGuide.defaultGuide(for: activeCharacter, strokeCount: 1).strokeCount
+    }
+
+    private var filteredUnlockedCards: [CharacterCard] {
+        if let filter = selectorFilter {
+            let rawFilter = filter.rawValue
+            return unlockedCards.filter { $0.categoryRaw == rawFilter }
+        }
+        return unlockedCards
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -22,24 +60,29 @@ struct SpatialAirDrawingView: View {
             simulatorFallbackView
             #else
             ARAirDrawingCanvas(
-                character: character,
+                character: activeCharacter,
+                strokeCount: activeStrokeCount,
                 isSurfaceLocked: isSurfaceLocked,
                 isSuccess: isSuccess,
                 clearTrigger: strokeClearTrigger,
                 hasDetectedSurface: $hasDetectedSurface,
-                drawnPoints: $drawnPoints,
+                currentStrokeIndex: $currentStrokeIndex,
+                completedStrokeCount: $completedStrokeCount,
                 onPlaneTapped: {
                     withAnimation(.spring(response: 0.45, dampingFraction: 0.75)) {
                         isSurfaceLocked = true
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     }
                 },
-                onTracePoint: { strokePoint in
-                    drawnPoints.append(strokePoint)
-                    checkCompletion()
+                onStrokeSuccess: { strokeIdx in
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 },
-                onTraceEnd: {
-                    checkCompletion()
+                onCharacterCompleted: {
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                        isSuccess = true
+                        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                        AudioService.shared.speak(activeCharacter)
+                    }
                 }
             )
             .ignoresSafeArea()
@@ -47,6 +90,11 @@ struct SpatialAirDrawingView: View {
 
             // Dynamic 3-Stage Glassmorphic HUD Overlay
             hudOverlay
+        }
+        .sheet(isPresented: $showSelectorDrawer) {
+            unlockedCharacterSelectorSheet
+                .presentationDetents([.medium, .fraction(0.75)])
+                .presentationDragIndicator(.visible)
         }
     }
 
@@ -66,7 +114,7 @@ struct SpatialAirDrawingView: View {
                                 .stroke(isSuccess ? Color.tsumugiChartreuse : Color.tsumugiDustyDenim, lineWidth: 3)
                         )
 
-                    Text(character)
+                    Text(activeCharacter)
                         .font(.system(size: 110, weight: .bold, design: .serif))
                         .foregroundStyle(isSuccess ? Color.tsumugiChartreuse : Color.tsumugiDustyDenim)
                         .shadow(color: isSuccess ? Color.tsumugiChartreuse.opacity(0.8) : .clear, radius: 12)
@@ -75,16 +123,24 @@ struct SpatialAirDrawingView: View {
                 Text("Surface Tracing Simulation (Simulator)")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+
+                Text("Strokes: \(completedStrokeCount)/\(activeStrokeCount)")
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundStyle(Color.tsumugiChartreuse)
             }
         }
         .gesture(
             DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    drawnPoints.append(SIMD3<Float>(0, 0, 0))
-                    checkCompletion()
-                }
                 .onEnded { _ in
-                    checkCompletion()
+                    completedStrokeCount += 1
+                    if completedStrokeCount >= activeStrokeCount && !isSuccess {
+                        withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                            isSuccess = true
+                            UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                            AudioService.shared.speak(activeCharacter)
+                        }
+                    }
                 }
         )
     }
@@ -115,6 +171,34 @@ struct SpatialAirDrawingView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Close AR Canvas")
 
+                // Unlocked Character Selector Button
+                Button {
+                    showSelectorDrawer = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(activeCharacter)
+                            .font(.system(size: 16, weight: .bold, design: .serif))
+                            .foregroundStyle(Color.tsumugiTextPrimary)
+
+                        Text("Change")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundStyle(Color.tsumugiDustyDenim)
+
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(Color.tsumugiDustyDenim)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(Color.tsumugiCardBorder, lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+
                 Spacer()
 
                 // Stage Status Badge
@@ -129,7 +213,7 @@ struct SpatialAirDrawingView: View {
                     } else if isSurfaceLocked {
                         Image(systemName: "pencil.and.outline")
                             .foregroundStyle(Color.tsumugiDustyDenim)
-                        Text("Tracing Mode")
+                        Text("Stroke \(min(currentStrokeIndex + 1, activeStrokeCount))/\(activeStrokeCount)")
                             .font(.caption)
                             .fontWeight(.semibold)
                             .foregroundStyle(Color.tsumugiTextPrimary)
@@ -143,7 +227,7 @@ struct SpatialAirDrawingView: View {
                     } else {
                         ProgressView()
                             .scaleEffect(0.6)
-                        Text("Scanning Surface...")
+                        Text("Scanning...")
                             .font(.caption)
                             .fontWeight(.medium)
                             .foregroundStyle(Color.tsumugiTextPrimary)
@@ -217,14 +301,16 @@ struct SpatialAirDrawingView: View {
 
                     if isSuccess {
                         Button {
-                            if let onComplete = onComplete {
+                            if let next = nextUnlockedCharacter() {
+                                selectNewCharacter(next)
+                            } else if let onComplete = onComplete {
                                 onComplete()
                             } else {
                                 dismiss()
                             }
                         } label: {
                             HStack(spacing: 6) {
-                                Text("Next Kana")
+                                Text("Next Character")
                                 Image(systemName: "arrow.right")
                             }
                             .font(.subheadline)
@@ -251,7 +337,7 @@ struct SpatialAirDrawingView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "plus.circle.fill")
-                        Text("Place '\(character)' on Surface")
+                        Text("Place '\(activeCharacter)' on Surface")
                             .fontWeight(.bold)
                     }
                     .font(.subheadline)
@@ -265,6 +351,94 @@ struct SpatialAirDrawingView: View {
                 .padding(.bottom, 32)
             }
         }
+    }
+
+    // MARK: - Unlocked Character Selector Sheet
+
+    private var unlockedCharacterSelectorSheet: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                // Category Filter Segmented Control
+                Picker("Category", selection: $selectorFilter) {
+                    Text("All").tag(WritingCategory?.none)
+                    ForEach(WritingCategory.allCases) { cat in
+                        Text(cat.displayName).tag(Optional(cat))
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
+                if filteredUnlockedCards.isEmpty {
+                    ContentUnavailableView(
+                        "No Characters",
+                        systemImage: "lock.fill",
+                        description: Text("Unlock more characters in the study deck to practice.")
+                    )
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 5), spacing: 12) {
+                            ForEach(filteredUnlockedCards) { card in
+                                Button {
+                                    selectNewCharacter(card.character)
+                                    showSelectorDrawer = false
+                                } label: {
+                                    VStack(spacing: 4) {
+                                        Text(card.character)
+                                            .font(.system(size: 24, weight: .bold, design: .serif))
+                                            .foregroundStyle(activeCharacter == card.character ? Color.tsumugiSpaceIndigo : Color.tsumugiTextPrimary)
+
+                                        Text(card.romaji)
+                                            .font(.system(size: 9, weight: .medium))
+                                            .foregroundStyle(activeCharacter == card.character ? Color.tsumugiSpaceIndigo.opacity(0.8) : .secondary)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 64)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .fill(activeCharacter == card.character ? Color.tsumugiChartreuse : Color(uiColor: .secondarySystemGroupedBackground))
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                                    .stroke(activeCharacter == card.character ? Color.tsumugiChartreuse : Color.tsumugiCardBorder, lineWidth: 1.5)
+                                            )
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                    }
+                }
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle("Select Character")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        showSelectorDrawer = false
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Character Switching & Progression
+
+    private func selectNewCharacter(_ newCharacter: String) {
+        activeCharacter = newCharacter
+        clearStrokes()
+        AudioService.shared.speak(newCharacter)
+    }
+
+    private func nextUnlockedCharacter() -> String? {
+        guard !unlockedCards.isEmpty else { return nil }
+        if let currentIndex = unlockedCards.firstIndex(where: { $0.character == activeCharacter }) {
+            let nextIndex = (currentIndex + 1) % unlockedCards.count
+            return unlockedCards[nextIndex].character
+        }
+        return unlockedCards.first?.character
     }
 
     // MARK: - Instruction State Helpers
@@ -285,7 +459,7 @@ struct SpatialAirDrawingView: View {
         if isSuccess {
             return "Mastered in 3D!"
         } else if isSurfaceLocked {
-            return "Trace '\(character)' on Surface"
+            return "Trace Stroke \(min(currentStrokeIndex + 1, activeStrokeCount)) of \(activeStrokeCount)"
         } else if hasDetectedSurface {
             return "Flat Surface Detected"
         } else {
@@ -297,9 +471,9 @@ struct SpatialAirDrawingView: View {
         if isSuccess {
             return "The character has lifted into a full 3D sculpture on your desk."
         } else if isSurfaceLocked {
-            return "Follow the stroke guide dots to draw the character on your table."
+            return "Start at the green dot and draw along the stroke trajectory."
         } else if hasDetectedSurface {
-            return "Tap the green reticle or button below to project the '\(character)' template."
+            return "Tap the green reticle or button below to project the '\(activeCharacter)' template."
         } else {
             return "Slowly move your iPhone around to find a flat table, desk, or floor."
         }
@@ -308,22 +482,14 @@ struct SpatialAirDrawingView: View {
     // MARK: - Actions & Completion
 
     private func clearStrokes() {
-        drawnPoints.removeAll()
+        currentStrokeIndex = 0
+        completedStrokeCount = 0
         isSuccess = false
         strokeClearTrigger += 1
-    }
-
-    private func checkCompletion() {
-        if drawnPoints.count >= 8 && !isSuccess {
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
-                isSuccess = true
-                UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-                AudioService.shared.speak(character)
-            }
-        }
     }
 }
 
 #Preview {
     SpatialAirDrawingView(character: "あ")
+        .modelContainer(PreviewContainer.shared)
 }

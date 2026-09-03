@@ -2,17 +2,19 @@ import ARKit
 import RealityKit
 import SwiftUI
 
-/// ARKit & RealityKit plane-projected surface canvas providing surface scanning, flat stencil projection, and animated 3D extrusion.
+/// ARKit & RealityKit plane-projected surface canvas providing surface scanning, flat stencil projection, sequential multi-stroke validation, and animated 3D extrusion.
 struct ARAirDrawingCanvas: UIViewRepresentable {
     let character: String
+    let strokeCount: Int
     let isSurfaceLocked: Bool
     let isSuccess: Bool
     let clearTrigger: Int
     @Binding var hasDetectedSurface: Bool
-    @Binding var drawnPoints: [SIMD3<Float>]
+    @Binding var currentStrokeIndex: Int
+    @Binding var completedStrokeCount: Int
     var onPlaneTapped: (() -> Void)? = nil
-    var onTracePoint: ((SIMD3<Float>) -> Void)? = nil
-    var onTraceEnd: (() -> Void)? = nil
+    var onStrokeSuccess: ((Int) -> Void)? = nil
+    var onCharacterCompleted: (() -> Void)? = nil
 
     func makeUIView(context: Context) -> ARView {
         let arView = ARView(frame: .zero)
@@ -51,12 +53,14 @@ struct ARAirDrawingCanvas: UIViewRepresentable {
         context.coordinator.isSurfaceLocked = isSurfaceLocked
         context.coordinator.isSuccess = isSuccess
         context.coordinator.onPlaneTapped = onPlaneTapped
-        context.coordinator.onTracePoint = onTracePoint
-        context.coordinator.onTraceEnd = onTraceEnd
+        context.coordinator.onStrokeSuccess = onStrokeSuccess
+        context.coordinator.onCharacterCompleted = onCharacterCompleted
+        context.coordinator.strokeCount = strokeCount
 
         // Check if character changed
         if context.coordinator.currentCharacter != character {
             context.coordinator.currentCharacter = character
+            context.coordinator.resetProgress()
             if context.coordinator.isSurfaceLocked {
                 context.coordinator.setupSurfaceCharacter(character: character, isSuccess: isSuccess)
             }
@@ -78,12 +82,20 @@ struct ARAirDrawingCanvas: UIViewRepresentable {
         // Handle clear trigger
         if clearTrigger != context.coordinator.lastClearTrigger {
             context.coordinator.lastClearTrigger = clearTrigger
+            context.coordinator.resetProgress()
             context.coordinator.clearTrailEntities()
+            if context.coordinator.isSurfaceLocked && !isSuccess {
+                context.coordinator.setupSurfaceCharacter(character: character, isSuccess: false)
+            }
         }
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(hasDetectedSurface: $hasDetectedSurface)
+        Coordinator(
+            hasDetectedSurface: $hasDetectedSurface,
+            currentStrokeIndex: $currentStrokeIndex,
+            completedStrokeCount: $completedStrokeCount
+        )
     }
 
     // MARK: - Reticle Visual Entity
@@ -106,12 +118,16 @@ struct ARAirDrawingCanvas: UIViewRepresentable {
     @MainActor
     class Coordinator: NSObject, ARSessionDelegate {
         @Binding var hasDetectedSurface: Bool
+        @Binding var currentStrokeIndex: Int
+        @Binding var completedStrokeCount: Int
+
         var arView: ARView?
         var reticleAnchor: AnchorEntity?
         var reticleEntity: ModelEntity?
         var surfaceAnchor: AnchorEntity?
         var characterEntity: ModelEntity?
         var currentCharacter: String = ""
+        var strokeCount: Int = 1
         var isSurfaceLocked: Bool = false
         var isSuccess: Bool = false
         var lastSuccessState: Bool = false
@@ -119,11 +135,32 @@ struct ARAirDrawingCanvas: UIViewRepresentable {
         var lastHitTransform: simd_float4x4?
 
         var onPlaneTapped: (() -> Void)?
-        var onTracePoint: ((SIMD3<Float>) -> Void)?
-        var onTraceEnd: (() -> Void)?
+        var onStrokeSuccess: ((Int) -> Void)?
+        var onCharacterCompleted: (() -> Void)?
 
-        init(hasDetectedSurface: Binding<Bool>) {
+        // Stroke Tracking State
+        private let validator = ARStrokeValidator()
+        private var activeStrokePoints: [CGPoint] = []
+        private var activeStrokeEntities: [ModelEntity] = []
+        private var completedStrokesSet: Set<Int> = []
+        private let planePhysicalWidth: Float = 0.14 // 14cm character bounding box on surface
+
+        init(
+            hasDetectedSurface: Binding<Bool>,
+            currentStrokeIndex: Binding<Int>,
+            completedStrokeCount: Binding<Int>
+        ) {
             self._hasDetectedSurface = hasDetectedSurface
+            self._currentStrokeIndex = currentStrokeIndex
+            self._completedStrokeCount = completedStrokeCount
+        }
+
+        func resetProgress() {
+            completedStrokesSet.removeAll()
+            activeStrokePoints.removeAll()
+            activeStrokeEntities.removeAll()
+            currentStrokeIndex = 0
+            completedStrokeCount = 0
         }
 
         // MARK: - ARSessionDelegate Raycasting
@@ -174,13 +211,13 @@ struct ARAirDrawingCanvas: UIViewRepresentable {
 
         func setupSurfaceCharacter(character: String, isSuccess: Bool) {
             guard let anchor = surfaceAnchor else { return }
-            characterEntity?.removeFromParent()
+            clearAllAnchorChildren(anchor: anchor)
 
             // Flat low-opacity guide stencil on surface (Stage 2)
             let textMesh = MeshResource.generateText(
                 character,
                 extrusionDepth: isSuccess ? 0.035 : 0.002,
-                font: .systemFont(ofSize: 0.14, weight: .bold),
+                font: .systemFont(ofSize: CGFloat(planePhysicalWidth), weight: .bold),
                 containerFrame: .zero,
                 alignment: .center
             )
@@ -197,7 +234,7 @@ struct ARAirDrawingCanvas: UIViewRepresentable {
             let bounds = entity.visualBounds(relativeTo: nil)
             entity.position = [
                 -(bounds.extents.x / 2.0 + bounds.min.x),
-                isSuccess ? 0.02 : 0.001, // Flat on plane or elevated
+                isSuccess ? 0.02 : 0.001,
                 -(bounds.extents.y / 2.0 + bounds.min.y)
             ]
             entity.orientation = simd_quatf(angle: -.pi / 2, axis: [1, 0, 0])
@@ -205,43 +242,61 @@ struct ARAirDrawingCanvas: UIViewRepresentable {
             anchor.addChild(entity)
             self.characterEntity = entity
 
-            // Add faint stroke start indicator dots if guide available
-            if !isSuccess, let guide = StrokeGuide.guides[character] {
-                for (idx, stroke) in guide.strokes.enumerated() {
-                    let dotOffset = SIMD3<Float>(
-                        Float((stroke.startPoint.x - 0.5) * 0.14),
-                        0.003,
-                        Float((stroke.startPoint.y - 0.5) * 0.14)
-                    )
-                    let dot = SpatialKanjiGenerator.shared.createTrailPointEntity(
-                        position: dotOffset,
-                        radius: 0.004,
-                        color: idx == 0 ? UIColor(Color.tsumugiChartreuse) : UIColor(Color.tsumugiDustyDenim).withAlphaComponent(0.6)
-                    )
-                    dot.name = "guideDot"
-                    anchor.addChild(dot)
-                }
-            }
+            updateGuideIndicators(character: character)
+        }
+
+        private func updateGuideIndicators(character: String) {
+            guard let anchor = surfaceAnchor, !isSuccess else { return }
+
+            // Remove previous guide dots
+            let oldDots = anchor.children.filter { $0.name == "guideDot" }
+            for d in oldDots { d.removeFromParent() }
+
+            let guide = StrokeGuide.defaultGuide(for: character, strokeCount: strokeCount)
+            let targetIdx = currentStrokeIndex
+
+            guard targetIdx < guide.strokes.count else { return }
+            let activeSegment = guide.strokes[targetIdx]
+
+            // Render glowing start indicator dot for current active stroke
+            let dotOffset = SIMD3<Float>(
+                Float((activeSegment.startPoint.x - 0.5) * CGFloat(planePhysicalWidth)),
+                0.004,
+                Float((activeSegment.startPoint.y - 0.5) * CGFloat(planePhysicalWidth))
+            )
+            let startDot = SpatialKanjiGenerator.shared.createTrailPointEntity(
+                position: dotOffset,
+                radius: 0.007,
+                color: UIColor(Color.tsumugiChartreuse)
+            )
+            startDot.name = "guideDot"
+            anchor.addChild(startDot)
+
+            // Render subtle end dot
+            let endOffset = SIMD3<Float>(
+                Float((activeSegment.endPoint.x - 0.5) * CGFloat(planePhysicalWidth)),
+                0.003,
+                Float((activeSegment.endPoint.y - 0.5) * CGFloat(planePhysicalWidth))
+            )
+            let endDot = SpatialKanjiGenerator.shared.createTrailPointEntity(
+                position: endOffset,
+                radius: 0.004,
+                color: UIColor(Color.tsumugiDustyDenim).withAlphaComponent(0.6)
+            )
+            endDot.name = "guideDot"
+            anchor.addChild(endDot)
         }
 
         // MARK: - Elevate to 3D on Completion (Stage 3)
 
         func elevateCharacterTo3D(character: String) {
             guard let anchor = surfaceAnchor else { return }
-
-            // Remove guide dots
-            let guideDots = anchor.children.filter { $0.name == "guideDot" }
-            for dot in guideDots {
-                dot.removeFromParent()
-            }
-
-            // Animate to full 3D extruded entity with metallic material and vertical elevation
-            characterEntity?.removeFromParent()
+            clearAllAnchorChildren(anchor: anchor)
 
             let textMesh = MeshResource.generateText(
                 character,
                 extrusionDepth: 0.035,
-                font: .systemFont(ofSize: 0.14, weight: .bold),
+                font: .systemFont(ofSize: CGFloat(planePhysicalWidth), weight: .bold),
                 containerFrame: .zero,
                 alignment: .center
             )
@@ -263,13 +318,19 @@ struct ARAirDrawingCanvas: UIViewRepresentable {
 
         func clearTrailEntities() {
             guard let anchor = surfaceAnchor else { return }
-            let trails = anchor.children.filter { $0.name == "inkTrail" }
+            let trails = anchor.children.filter { $0.name == "inkTrail" || $0.name == "tempInkTrail" }
             for t in trails {
                 t.removeFromParent()
             }
         }
 
-        // MARK: - Gestures
+        private func clearAllAnchorChildren(anchor: AnchorEntity) {
+            for child in anchor.children {
+                child.removeFromParent()
+            }
+        }
+
+        // MARK: - Gestures & Multi-Stroke Validation
 
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
             if !isSurfaceLocked && hasDetectedSurface {
@@ -278,29 +339,80 @@ struct ARAirDrawingCanvas: UIViewRepresentable {
         }
 
         @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
-            guard let arView = arView, let anchor = surfaceAnchor, isSurfaceLocked else { return }
+            guard let arView = arView, let anchor = surfaceAnchor, isSurfaceLocked, !isSuccess else { return }
             let location = gesture.location(in: arView)
 
             switch gesture.state {
-            case .began, .changed:
-                // Raycast touch onto the horizontal surface plane
+            case .began:
+                activeStrokePoints.removeAll()
+                activeStrokeEntities.removeAll()
+
+            case .changed:
                 let hits = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .horizontal)
                 if let hit = hits.first {
                     let worldPos = hit.worldTransform.columns.3
                     let localPos = anchor.convert(position: SIMD3<Float>(worldPos.x, worldPos.y, worldPos.z), from: nil)
+
+                    // Normalize to 0.0 ... 1.0 bounding box
+                    let normX = CGFloat((localPos.x / planePhysicalWidth) + 0.5)
+                    let normY = CGFloat((localPos.z / planePhysicalWidth) + 0.5)
+                    activeStrokePoints.append(CGPoint(x: normX, y: normY))
 
                     let inkTrail = SpatialKanjiGenerator.shared.createTrailPointEntity(
                         position: [localPos.x, 0.003, localPos.z],
                         radius: 0.005,
                         color: UIColor(Color.tsumugiChartreuse)
                     )
-                    inkTrail.name = "inkTrail"
+                    inkTrail.name = "tempInkTrail"
                     anchor.addChild(inkTrail)
-                    onTracePoint?([localPos.x, localPos.y, localPos.z])
+                    activeStrokeEntities.append(inkTrail)
                 }
 
-            case .ended, .cancelled:
-                onTraceEnd?()
+            case .ended:
+                let guide = StrokeGuide.defaultGuide(for: currentCharacter, strokeCount: strokeCount)
+                let targetIdx = currentStrokeIndex
+
+                if targetIdx < guide.strokes.count {
+                    let expectedSeg = guide.strokes[targetIdx]
+                    let isValid = validator.validate(
+                        normalizedPoints: activeStrokePoints,
+                        expectedSegment: expectedSeg,
+                        tolerance: 0.32
+                    )
+
+                    if isValid {
+                        // Lock ink trail
+                        for entity in activeStrokeEntities {
+                            entity.name = "inkTrail"
+                        }
+                        completedStrokesSet.insert(targetIdx)
+                        completedStrokeCount = completedStrokesSet.count
+                        onStrokeSuccess?(targetIdx)
+
+                        if completedStrokesSet.count >= guide.strokes.count {
+                            // Full character completed!
+                            onCharacterCompleted?()
+                        } else {
+                            // Advance to next stroke
+                            currentStrokeIndex += 1
+                            updateGuideIndicators(character: currentCharacter)
+                        }
+                    } else {
+                        // Gesture invalid or lifted mid-stroke before reaching target: clear temporary ink
+                        for entity in activeStrokeEntities {
+                            entity.removeFromParent()
+                        }
+                    }
+                }
+                activeStrokePoints.removeAll()
+                activeStrokeEntities.removeAll()
+
+            case .cancelled:
+                for entity in activeStrokeEntities {
+                    entity.removeFromParent()
+                }
+                activeStrokePoints.removeAll()
+                activeStrokeEntities.removeAll()
 
             default:
                 break
