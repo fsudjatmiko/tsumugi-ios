@@ -32,14 +32,22 @@ public final class AudioService: NSObject, AVSpeechSynthesizerDelegate {
     ///   - rate: Speech rate modifier (defaults to slightly slower 0.45 for clarity).
     ///   - pitchMultiplier: Pitch modifier between 0.5 and 2.0 (defaults to 1.0).
     public func speak(_ text: String, rate: Float = 0.45, pitchMultiplier: Float = 1.0) {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        // Sanitize: Strip any Furigana/Ruby readings in parentheses (e.g. "行(い)きます" -> "行きます")
+        let rubyPattern = #"\([ぁ-んァ-ンー]+\)"#
+        let sanitized = trimmed.replacingOccurrences(of: rubyPattern, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !sanitized.isEmpty else { return }
 
         // Stop any currently running speech
         if synthesizer.isSpeaking {
             synthesizer.stopSpeaking(at: .immediate)
         }
 
-        let utterance = AVSpeechUtterance(string: text)
+        let utterance = AVSpeechUtterance(string: sanitized)
         utterance.voice = japaneseVoice
         utterance.rate = rate
         utterance.pitchMultiplier = pitchMultiplier

@@ -241,16 +241,23 @@ struct ChatPracticeView: View {
                     // Tutor 3-Tier Bubble
                     let parsed = ParsedTutorMessage(from: message.text)
 
-                    // 1. Japanese Primary Text (Headline / Body)
-                    Text(parsed.japanese)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Color.tsumugiTextPrimary)
+                    // 1. Japanese Primary Text with Native Ruby Typography
+                    RubyTextView(
+                        text: parsed.japanese,
+                        font: .systemFont(ofSize: 17, weight: .semibold),
+                        textColor: UIColor(Color.tsumugiTextPrimary),
+                        rubyFont: .systemFont(ofSize: 10, weight: .regular),
+                        rubyColor: .secondaryLabel,
+                        lineSpacing: 6
+                    )
+                    .fixedSize(horizontal: false, vertical: true)
 
                     // 2. Romaji Sub-line (if available and enabled)
                     if showFurigana, let romaji = parsed.romaji, !romaji.isEmpty {
                         Text(romaji)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
 
                     // 3. English Meaning Box (if available and enabled)
@@ -258,8 +265,11 @@ struct ChatPracticeView: View {
                         Text(english)
                             .font(.subheadline)
                             .foregroundStyle(Color.tsumugiTextPrimary.opacity(0.85))
+                            .lineLimit(nil)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
+                            .padding(.vertical, 8)
                             .background(Color(uiColor: .systemGroupedBackground))
                             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
