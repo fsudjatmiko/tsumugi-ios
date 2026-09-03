@@ -23,6 +23,33 @@ struct SpatialLabView: View {
     @State private var selectedCharacterIndex: Int = 0
     @State private var showingARSheet: Bool = false
 
+    // Persistent Radical Fusion Campaign State
+    @AppStorage("radicalFusionHighestStage") private var highestUnlockedStage: Int = 1
+    @AppStorage("radicalFusionClearedStages") private var clearedStagesData: Data = Data()
+    @State private var currentRadicalStageIndex: Int = 0
+
+    private var clearedStageIds: Set<Int> {
+        get {
+            guard !clearedStagesData.isEmpty,
+                  let decoded = try? JSONDecoder().decode(Set<Int>.self, from: clearedStagesData) else {
+                return []
+            }
+            return decoded
+        }
+        nonmutating set {
+            if let encoded = try? JSONEncoder().encode(newValue) {
+                clearedStagesData = encoded
+            }
+        }
+    }
+
+    private var clearedStageIdsBinding: Binding<Set<Int>> {
+        Binding(
+            get: { clearedStageIds },
+            set: { clearedStageIds = $0 }
+        )
+    }
+
     private var activeCard: CharacterCard? {
         guard !unlockedCards.isEmpty, selectedCharacterIndex < unlockedCards.count else {
             return unlockedCards.first
@@ -43,7 +70,12 @@ struct SpatialLabView: View {
                     if selectedMode == .airDrawing {
                         airDrawingSetupSection
                     } else {
-                        RadicalAssemblyView()
+                        RadicalAssemblyView(
+                            stages: RadicalFusionData.all50,
+                            currentStageIndex: $currentRadicalStageIndex,
+                            highestUnlockedStage: $highestUnlockedStage,
+                            clearedStageIds: clearedStageIdsBinding
+                        )
                     }
                 }
                 .padding(.horizontal, 20)
