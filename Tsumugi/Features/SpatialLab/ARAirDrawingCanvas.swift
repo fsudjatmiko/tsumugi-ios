@@ -258,30 +258,46 @@ struct ARAirDrawingCanvas: UIViewRepresentable {
             guard targetIdx < guide.strokes.count else { return }
             let activeSegment = guide.strokes[targetIdx]
 
-            // Render glowing start indicator dot for current active stroke
+            // 1. Render glowing start indicator dot for current active stroke (prominent origin point)
             let dotOffset = SIMD3<Float>(
                 Float((activeSegment.startPoint.x - 0.5) * CGFloat(planePhysicalWidth)),
-                0.004,
+                0.005,
                 Float((activeSegment.startPoint.y - 0.5) * CGFloat(planePhysicalWidth))
             )
             let startDot = SpatialKanjiGenerator.shared.createTrailPointEntity(
                 position: dotOffset,
-                radius: 0.007,
+                radius: 0.008,
                 color: UIColor(Color.tsumugiChartreuse)
             )
             startDot.name = "guideDot"
             anchor.addChild(startDot)
 
-            // Render subtle end dot
+            // 2. Render trajectory curve checkpoints (faint dashed path on surface)
+            for mid in activeSegment.midPoints {
+                let midOffset = SIMD3<Float>(
+                    Float((mid.x - 0.5) * CGFloat(planePhysicalWidth)),
+                    0.003,
+                    Float((mid.y - 0.5) * CGFloat(planePhysicalWidth))
+                )
+                let midDot = SpatialKanjiGenerator.shared.createTrailPointEntity(
+                    position: midOffset,
+                    radius: 0.0035,
+                    color: UIColor(Color.tsumugiDustyDenim).withAlphaComponent(0.45)
+                )
+                midDot.name = "guideDot"
+                anchor.addChild(midDot)
+            }
+
+            // 3. Render subtle destination end dot
             let endOffset = SIMD3<Float>(
                 Float((activeSegment.endPoint.x - 0.5) * CGFloat(planePhysicalWidth)),
-                0.003,
+                0.004,
                 Float((activeSegment.endPoint.y - 0.5) * CGFloat(planePhysicalWidth))
             )
             let endDot = SpatialKanjiGenerator.shared.createTrailPointEntity(
                 position: endOffset,
-                radius: 0.004,
-                color: UIColor(Color.tsumugiDustyDenim).withAlphaComponent(0.6)
+                radius: 0.005,
+                color: UIColor(Color.tsumugiDustyDenim).withAlphaComponent(0.65)
             )
             endDot.name = "guideDot"
             anchor.addChild(endDot)

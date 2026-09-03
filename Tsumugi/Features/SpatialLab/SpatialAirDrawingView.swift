@@ -471,7 +471,32 @@ struct SpatialAirDrawingView: View {
         if isSuccess {
             return "The character has lifted into a full 3D sculpture on your desk."
         } else if isSurfaceLocked {
-            return "Start at the green dot and draw along the stroke trajectory."
+            let guide = StrokeGuide.defaultGuide(for: activeCharacter, strokeCount: activeStrokeCount)
+            if currentStrokeIndex < guide.strokes.count {
+                let seg = guide.strokes[currentStrokeIndex]
+                let dx = seg.endPoint.x - seg.startPoint.x
+                let dy = seg.endPoint.y - seg.startPoint.y
+                let directionDesc: String
+                if abs(dx) > abs(dy) * 1.6 {
+                    directionDesc = dx > 0 ? "Left to right" : "Right to left"
+                } else if abs(dy) > abs(dx) * 1.6 {
+                    directionDesc = dy > 0 ? "Top to bottom" : "Bottom to top"
+                } else {
+                    let hPart = dx > 0 ? "right" : "left"
+                    let vPart = dy > 0 ? "downward" : "upward"
+                    directionDesc = "Diagonal \(vPart)-\(hPart)"
+                }
+
+                let tip: String
+                switch seg.strokeType {
+                case .hane: tip = "Hook upward at finish"
+                case .harai: tip = "Release with sweeping taper"
+                case .tome: tip = "Firm stop at finish"
+                }
+
+                return "\(directionDesc). \(tip)."
+            }
+            return "Start at the glowing green dot and trace along the trajectory."
         } else if hasDetectedSurface {
             return "Tap the green reticle or button below to project the '\(activeCharacter)' template."
         } else {

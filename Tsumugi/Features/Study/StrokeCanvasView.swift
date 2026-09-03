@@ -74,6 +74,26 @@ struct StrokeCanvasView: View {
                     .frame(width: size.width, height: size.height, alignment: .center)
                     .allowsHitTesting(false)
 
+                // Faint dashed trajectory curve for active expected stroke
+                if showGhostGuide && !isCharacterCompleted, let currentSeg = currentExpectedSegment {
+                    Path { path in
+                        let pts = currentSeg.allPoints.map {
+                            CGPoint(x: $0.x * size.width, y: $0.y * size.height)
+                        }
+                        if let first = pts.first {
+                            path.move(to: first)
+                            for pt in pts.dropFirst() {
+                                path.addLine(to: pt)
+                            }
+                        }
+                    }
+                    .stroke(
+                        Color.tsumugiDustyDenim.opacity(0.35),
+                        style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round, dash: [5, 4])
+                    )
+                    .allowsHitTesting(false)
+                }
+
                 // Next expected stroke start indicator (green dot & number)
                 if showGhostGuide && !isCharacterCompleted, let currentSeg = currentExpectedSegment {
                     currentStrokeStartMarker(segment: currentSeg, canvasSize: size)
@@ -235,16 +255,24 @@ struct StrokeCanvasView: View {
 
     private var drawingControls: some View {
         HStack {
-            HStack(spacing: 6) {
-                Text("Stroke \(min(currentStrokeIndex + 1, max(1, strokeGuide.strokes.count))) of \(strokeGuide.strokes.count)")
-                    .font(.footnote)
-                    .fontWeight(.medium)
-                    .foregroundStyle(Color.tsumugiTextSecondary)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text("Stroke \(min(currentStrokeIndex + 1, max(1, strokeGuide.strokes.count))) of \(strokeGuide.strokes.count)")
+                        .font(.footnote)
+                        .fontWeight(.bold)
+                        .foregroundStyle(Color.tsumugiTextPrimary)
 
-                if retryCount > 0 {
-                    Text("(\(retryCount) \(retryCount == 1 ? "retry" : "retries"))")
+                    if retryCount > 0 {
+                        Text("(\(retryCount) \(retryCount == 1 ? "retry" : "retries"))")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let seg = currentExpectedSegment {
+                    Text(strokeDirectionAndTypeHint(for: seg))
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.tsumugiDustyDenim)
                 }
             }
 
@@ -345,6 +373,30 @@ struct StrokeCanvasView: View {
         currentStrokeIndex = 0
         retryCount = 0
         isCharacterCompleted = false
+    }
+
+    private func strokeDirectionAndTypeHint(for segment: StrokeSegment) -> String {
+        let dx = segment.endPoint.x - segment.startPoint.x
+        let dy = segment.endPoint.y - segment.startPoint.y
+        let dir: String
+        if abs(dx) > abs(dy) * 1.6 {
+            dir = dx > 0 ? "Left to right" : "Right to left"
+        } else if abs(dy) > abs(dx) * 1.6 {
+            dir = dy > 0 ? "Top to bottom" : "Bottom to top"
+        } else {
+            let h = dx > 0 ? "right" : "left"
+            let v = dy > 0 ? "down" : "up"
+            dir = "Diagonal \(v)-\(h)"
+        }
+
+        let typeDesc: String
+        switch segment.strokeType {
+        case .hane: typeDesc = "hook flick"
+        case .harai: typeDesc = "sweeping release"
+        case .tome: typeDesc = "clean stop"
+        }
+
+        return "\(dir) • \(typeDesc)"
     }
 }
 

@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-/// Pure Swift validator for calculating gesture accuracy against normalized StrokeGuides.
+/// Pure Swift validator for calculating gesture accuracy against canonical character stroke trajectories.
 public struct StrokeValidator: Sendable {
     public enum ValidationResult: Sendable, Equatable {
         case perfect
@@ -17,19 +17,19 @@ public struct StrokeValidator: Sendable {
 
     public init() {}
 
-    /// Validates a user-drawn stroke against an expected StrokeSegment.
+    /// Validates a user-drawn stroke against an expected CharacterStroke.
     ///
     /// - Parameters:
     ///   - userPoints: Raw points captured from the canvas drag gesture.
     ///   - canvasSize: Size of the drawing canvas in points.
-    ///   - expectedSegment: The ideal normalized stroke segment.
-    ///   - tolerance: Normalized distance tolerance (defaults to 0.28 for finger drawing).
+    ///   - expectedStroke: The ideal canonical stroke trajectory.
+    ///   - tolerance: Normalized distance tolerance (defaults to 0.26 for finger drawing).
     /// - Returns: `ValidationResult` indicating accuracy.
     public func validateStroke(
         userPoints: [CGPoint],
         canvasSize: CGSize,
-        expectedSegment: StrokeSegment,
-        tolerance: CGFloat = 0.28
+        expectedStroke: CharacterStroke,
+        tolerance: CGFloat = 0.26
     ) -> ValidationResult {
         guard userPoints.count >= 3 else {
             return .tooShort
@@ -51,80 +51,87 @@ public struct StrokeValidator: Sendable {
             return .missedPath
         }
 
-        // Expanded start/end bounding box tolerance for comfortable touch drawing (0.28 standard, up to 0.32)
-        let effectiveTolerance = max(tolerance, 0.28)
+        let effectiveTolerance = max(tolerance, 0.25)
+        let startRadius = max(0.18, effectiveTolerance * 0.70)
 
-        // 1. Check start point proximity
-        let startDistance = distance(from: firstUserPoint, to: expectedSegment.startPoint)
-        guard startDistance <= effectiveTolerance else {
-            // Check if user drew backwards (started at end point)
-            let reversedStartDistance = distance(from: firstUserPoint, to: expectedSegment.endPoint)
-            if reversedStartDistance <= effectiveTolerance {
+        // 1. Start Proximity Check (15-18% radius)
+        let startDistance = expectedStroke.distanceToStart(from: firstUserPoint)
+        guard startDistance <= startRadius else {
+            // Check if user drew backwards (started near the end point)
+            let reversedStartDistance = expectedStroke.distanceToEnd(from: firstUserPoint)
+            if reversedStartDistance <= startRadius {
                 return .wrongDirection
             }
             return .missedPath
         }
 
-        // 2. Check end point proximity
-        let endDistance = distance(from: lastUserPoint, to: expectedSegment.endPoint)
+        // 2. End Proximity Check
+        let endDistance = expectedStroke.distanceToEnd(from: lastUserPoint)
         guard endDistance <= effectiveTolerance else {
             return .missedPath
         }
 
-        // 3. Multi-segment / Angled / Knee Validation
-        // If the stroke has intermediate corner / mid points (e.g., Katakana 'ア', 'フ', 'マ', 'ワ')
-        if !expectedSegment.midPoints.isEmpty {
-            // User path must pass near each intermediate vertex in sequence
-            var lastFoundIndex = 0
-            for midPoint in expectedSegment.midPoints {
-                // Find if any user point from lastFoundIndex onward is within tolerance of this corner vertex
-                var vertexFound = false
-                let vertexTolerance = effectiveTolerance * 1.15 // slightly more generous around sharp bends
+        // 3. Directional Flow Check
+        // If the user's end point is closer to the start than the end, it's backwards
+        let reversedEndDistance = expectedStroke.distanceToStart(from: lastUserPoint)
+        if reversedEndDistance < endDistance {
+            return .wrongDirection
+        }
 
+        // 4. Intermediate Checkpoint Traversal in Sequential Order
+        let midPoints = expectedStroke.midPoints
+        if !midPoints.isEmpty {
+            var lastFoundIndex = 0
+            for checkpoint in midPoints {
+                var found = false
+                let checkpointTolerance = effectiveTolerance * 1.25
                 for i in lastFoundIndex..<normalizedUserPoints.count {
-                    if distance(from: normalizedUserPoints[i], to: midPoint) <= vertexTolerance {
-                        vertexFound = true
+                    if distance(from: normalizedUserPoints[i], to: checkpoint) <= checkpointTolerance {
+                        found = true
                         lastFoundIndex = i
                         break
                     }
                 }
-
-                // If user completely skipped the knee/corner of an angled stroke (e.g. cutting straight across diagonally)
-                if !vertexFound {
+                if !found {
                     return .missedPath
                 }
             }
+        }
 
-            // Grade precision for multi-segment
-            if startDistance < (effectiveTolerance * 0.6) && endDistance < (effectiveTolerance * 0.6) {
-                return .perfect
-            } else {
-                return .acceptable
+        // 5. Corridor Compliance Check (at least 70% in trajectory corridor)
+        var pointsInCorridor = 0
+        for pt in normalizedUserPoints {
+            if expectedStroke.isPointNearTrajectory(pt, threshold: effectiveTolerance) {
+                pointsInCorridor += 1
             }
         }
 
-        // 4. Directional vector validation for single straight/curved segments
-        let userVector = CGVector(
-            dx: lastUserPoint.x - firstUserPoint.x,
-            dy: lastUserPoint.y - firstUserPoint.y
-        )
-        let expectedVector = CGVector(
-            dx: expectedSegment.endPoint.x - expectedSegment.startPoint.x,
-            dy: expectedSegment.endPoint.y - expectedSegment.startPoint.y
-        )
-
-        let dotProduct = userVector.dx * expectedVector.dx + userVector.dy * expectedVector.dy
-        // Angular tolerance (cos(theta) > 0 covers up to 90 degrees; ensures general stroke progression direction)
-        guard dotProduct > 0 else {
-            return .wrongDirection
+        let corridorRatio = Double(pointsInCorridor) / Double(normalizedUserPoints.count)
+        guard corridorRatio >= 0.70 else {
+            return .missedPath
         }
 
-        // 5. Grade precision (Perfect vs Acceptable)
-        if startDistance < (effectiveTolerance * 0.55) && endDistance < (effectiveTolerance * 0.55) {
+        // Grade precision
+        if startDistance < (startRadius * 0.6) && endDistance < (effectiveTolerance * 0.6) && corridorRatio >= 0.85 {
             return .perfect
         } else {
             return .acceptable
         }
+    }
+
+    /// Backward-compatible overload for StrokeSegment
+    public func validateStroke(
+        userPoints: [CGPoint],
+        canvasSize: CGSize,
+        expectedSegment: StrokeSegment,
+        tolerance: CGFloat = 0.26
+    ) -> ValidationResult {
+        validateStroke(
+            userPoints: userPoints,
+            canvasSize: canvasSize,
+            expectedStroke: expectedSegment.characterStroke,
+            tolerance: tolerance
+        )
     }
 
     private func distance(from p1: CGPoint, to p2: CGPoint) -> CGFloat {
