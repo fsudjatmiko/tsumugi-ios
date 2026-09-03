@@ -8,7 +8,8 @@ public struct PreviewContainer {
         let schema = Schema([
             CharacterCard.self,
             ReviewLog.self,
-            ChatMessage.self
+            ChatMessage.self,
+            ChatSession.self
         ])
         let configuration = ModelConfiguration(
             schema: schema,
@@ -123,14 +124,23 @@ public struct PreviewContainer {
                 firstCard.reviewLogs.append(sampleLog)
             }
 
-            // Add sample chat message
+            // Add sample chat session and message
+            let sampleSession = ChatSession(
+                title: "Ordering at a Cafe ☕️",
+                createdAt: Date(),
+                updatedAt: Date()
+            )
+            context.insert(sampleSession)
+
             let sampleChat = ChatMessage(
                 text: "いらっしゃいませ！何をご注文されますか？",
                 furiganaMarkup: "いらっしゃいませ！[何|なに]をご[注|ちゅう][文|もん]されますか？",
                 englishTranslation: "Welcome! What would you like to order?",
-                isUser: false
+                isUser: false,
+                session: sampleSession
             )
             context.insert(sampleChat)
+            sampleSession.messages.append(sampleChat)
 
             try? context.save()
             return container

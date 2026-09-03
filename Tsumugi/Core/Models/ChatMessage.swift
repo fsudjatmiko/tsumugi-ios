@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 
-/// Persistent model or value capturing an individual chat message in a conversation.
+/// Persistent model capturing an individual chat message in a conversation.
 @Model
 public final class ChatMessage: Identifiable {
     @Attribute(.unique) public var id: String
@@ -11,13 +11,16 @@ public final class ChatMessage: Identifiable {
     public var isUser: Bool
     public var timestamp: Date
 
+    public var session: ChatSession?
+
     public init(
         id: String = UUID().uuidString,
         text: String,
         furiganaMarkup: String = "",
         englishTranslation: String = "",
         isUser: Bool,
-        timestamp: Date = Date()
+        timestamp: Date = Date(),
+        session: ChatSession? = nil
     ) {
         self.id = id
         self.text = text
@@ -25,5 +28,6 @@ public final class ChatMessage: Identifiable {
         self.englishTranslation = englishTranslation
         self.isUser = isUser
         self.timestamp = timestamp
+        self.session = session
     }
 }

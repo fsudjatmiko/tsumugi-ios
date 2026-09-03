@@ -4,6 +4,7 @@ import MLXLLM
 import MLXLMCommon
 import MLXRandom
 import Observation
+import SwiftData
 
 /// On-device local AI Japanese tutoring service using MLX Swift with Qwen 2.5 1.5B 4-bit.
 @Observable
@@ -20,14 +21,62 @@ public final class MLXChatService {
     public var statusMessage: String = "Ready"
     public var errorMessage: String? = nil
 
+    /// The currently selected and active chat session
+    public var currentSession: ChatSession?
+
     @ObservationIgnored
-    private var modelContainer: ModelContainer?
+    private var modelContainer: MLXLMCommon.ModelContainer?
 
     // Default configuration for Qwen 2.5 1.5B 4-bit (id: "mlx-community/Qwen2.5-1.5B-Instruct-4bit")
     @ObservationIgnored
     private let modelConfiguration = LLMRegistry.qwen2_5_1_5b
 
     public init() {}
+
+    // MARK: - Session Lifecycle Management
+
+    /// Starts, inserts, and focuses a new empty chat session with an initial greeting message.
+    @discardableResult
+    public func startNewSession(modelContext: SwiftData.ModelContext) -> ChatSession {
+        let newSession = ChatSession(
+            title: "New Conversation",
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+        modelContext.insert(newSession)
+
+        let initialGreeting = ChatMessage(
+            text: """
+            [JA]: こんにちは！つむぎです。日本語の練習をはじめましょう！何について話しますか？
+            [EN]: Hello! I'm Tsumugi. Let's start practicing Japanese! What would you like to talk about?
+            """,
+            furiganaMarkup: "",
+            englishTranslation: "",
+            isUser: false,
+            timestamp: Date(),
+            session: newSession
+        )
+        modelContext.insert(initialGreeting)
+        newSession.messages.append(initialGreeting)
+
+        try? modelContext.save()
+        self.currentSession = newSession
+        return newSession
+    }
+
+    /// Focuses on an existing session.
+    public func selectSession(_ session: ChatSession) {
+        self.currentSession = session
+    }
+
+    /// Deletes a session and cascades deletion to all associated messages.
+    public func deleteSession(_ session: ChatSession, modelContext: SwiftData.ModelContext) {
+        if currentSession?.id == session.id {
+            currentSession = nil
+        }
+        modelContext.delete(session)
+        try? modelContext.save()
+    }
 
     // MARK: - Model Preparation
 
