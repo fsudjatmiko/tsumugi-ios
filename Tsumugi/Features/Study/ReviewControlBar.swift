@@ -1,7 +1,7 @@
 import SwiftData
 import SwiftUI
 
-/// Control bar providing SM-2 review rating actions with recommended badge indicator and native haptic feedback.
+/// Clean binary (Forgot / Got It) bottom review dock replacing the legacy 4 pastel circles with native haptic feedback.
 struct ReviewControlBar: View {
     let card: CharacterCard
     let srsEngine: SRSEngine
@@ -9,85 +9,66 @@ struct ReviewControlBar: View {
     let onGraded: (SRSGrade) -> Void
 
     @Environment(\.modelContext) private var modelContext
-    @State private var feedbackTrigger: Int = 0
+    @State private var feedbackTriggerSuccess: Int = 0
+    @State private var feedbackTriggerWarning: Int = 0
 
     var body: some View {
-        VStack(spacing: 8) {
-            if let suggested = suggestedGrade {
-                HStack(spacing: 4) {
-                    Image(systemName: "sparkles")
-                        .font(.caption2)
-                    Text("Suggested Grade: \(suggested.label)")
-                        .font(.caption2)
+        HStack(spacing: 12) {
+            // Left Action: Forgot / Repeat
+            Button {
+                feedbackTriggerWarning += 1
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                applyGrade(.forgot)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+
+                    Text("Forgot")
+                        .font(.headline)
                         .fontWeight(.semibold)
                 }
-                .foregroundStyle(Color.tsumugiDustyDenim)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(Color.tsumugiDustyDenim.opacity(0.12))
-                .clipShape(Capsule())
+                .frame(maxWidth: .infinity)
+                .frame(height: 54)
+                .background(Color(uiColor: .secondarySystemFill), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .foregroundStyle(Color.red.opacity(0.85))
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Forgot card, repeat review")
 
-            HStack(spacing: 8) {
-                ForEach(SRSGrade.allCases) { grade in
-                    gradeButton(grade: grade)
+            // Right Action: Got It / Remembered
+            Button {
+                feedbackTriggerSuccess += 1
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                applyGrade(.remembered)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark")
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+
+                    Text("Got It")
+                        .font(.headline)
+                        .fontWeight(.bold)
                 }
+                .frame(maxWidth: .infinity)
+                .frame(height: 54)
+                .background(Color.tsumugiDustyDenim, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .foregroundStyle(.white)
+                .shadow(color: Color.tsumugiDustyDenim.opacity(0.3), radius: 6, y: 2)
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Got it, mark remembered")
         }
-        .padding(.horizontal, 16)
-        .sensoryFeedback(.impact, trigger: feedbackTrigger)
-    }
-
-    // MARK: - Button ViewBuilder
-
-    @ViewBuilder
-    private func gradeButton(grade: SRSGrade) -> some View {
-        let isSuggested = suggestedGrade == grade
-
-        Button {
-            applyGrade(grade)
-        } label: {
-            VStack(spacing: 3) {
-                Image(systemName: grade.iconName)
-                    .font(.footnote)
-                    .fontWeight(.bold)
-
-                Text(grade.label)
-                    .font(.caption)
-                    .fontWeight(isSuggested ? .bold : .semibold)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-
-                Text(previewInterval(for: grade))
-                    .font(.caption2)
-                    .opacity(0.85)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 4)
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.regular)
-        .tint(grade.tint)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(isSuggested ? grade.tint : Color.clear, lineWidth: 2)
-        )
+        .padding(.horizontal, 20)
+        .sensoryFeedback(.warning, trigger: feedbackTriggerWarning)
+        .sensoryFeedback(.success, trigger: feedbackTriggerSuccess)
     }
 
     // MARK: - Helpers
 
-    private func previewInterval(for grade: SRSGrade) -> String {
-        let result = srsEngine.calculateNextReview(
-            grade: grade,
-            currentInterval: card.interval,
-            currentRepetitions: card.repetitions,
-            currentEaseFactor: card.easeFactor
-        )
-        return result.interval == 1 ? "1d" : "\(result.interval)d"
-    }
-
     private func applyGrade(_ grade: SRSGrade) {
-        feedbackTrigger += 1
         let log = srsEngine.processReview(for: card, grade: grade)
         modelContext.insert(log)
         try? modelContext.save()
@@ -108,7 +89,7 @@ struct ReviewControlBar: View {
     return ReviewControlBar(
         card: mockCard,
         srsEngine: SRSEngine(),
-        suggestedGrade: .good,
+        suggestedGrade: .remembered,
         onGraded: { _ in }
     )
     .padding()

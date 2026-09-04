@@ -99,11 +99,10 @@ struct StudySessionView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if isSessionActive && !activeStudyQueue.isEmpty {
-                    ToolbarItem(placement: .cancellationAction) {
+                    ToolbarItem(placement: .topBarLeading) {
                         Button("Exit") {
                             handleExit()
                         }
-                        .fontWeight(.regular)
                     }
 
                     ToolbarItem(placement: .principal) {
@@ -118,20 +117,13 @@ struct StudySessionView: View {
                                 showGhostGuide.toggle()
                             } label: {
                                 Image(systemName: showGhostGuide ? "eye.fill" : "eye.slash.fill")
-                                    .foregroundStyle(Color.tsumugiDustyDenim)
                             }
                             .accessibilityLabel(showGhostGuide ? "Hide stroke guide" : "Show stroke guide")
                         }
 
-                        Button {
+                        Button("Skip") {
                             skipCurrentCard()
-                        } label: {
-                            Label("Skip", systemImage: "forward.fill")
-                                .labelStyle(.titleAndIcon)
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .tint(Color.tsumugiDustyDenim)
                     }
                 }
             }
@@ -224,6 +216,9 @@ struct StudySessionView: View {
                     withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
                         isCardFlipped.toggle()
                     }
+                },
+                onSwipeGrade: { grade in
+                    gradeCardAndAdvance(card: card, grade: grade)
                 }
             )
 
@@ -274,9 +269,11 @@ struct StudySessionView: View {
                 Spacer()
 
                 Button {
-                    canvasResetID = UUID()
-                    suggestedGrade = nil
-                    isWritingCompleted = false
+                    withAnimation(.snappy(duration: 0.25)) {
+                        canvasResetID = UUID()
+                        suggestedGrade = nil
+                        isWritingCompleted = false
+                    }
                 } label: {
                     Label("Retry", systemImage: "arrow.counterclockwise")
                         .font(.caption)
@@ -295,7 +292,9 @@ struct StudySessionView: View {
                 audioService: audioService,
                 showGhostGuide: showGhostGuide,
                 onCompletion: { retryCount in
-                    isWritingCompleted = true
+                    withAnimation(.snappy(duration: 0.35)) {
+                        isWritingCompleted = true
+                    }
                     calculateSuggestedGrade(retryCount: retryCount)
                 }
             )
@@ -304,7 +303,7 @@ struct StudySessionView: View {
             // Secondary Pass / Reveal Action if writing is not completed yet
             if !isWritingCompleted {
                 Button {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                    withAnimation(.snappy(duration: 0.35)) {
                         isWritingCompleted = true
                         suggestedGrade = .struggled
                     }
@@ -317,16 +316,42 @@ struct StudySessionView: View {
                 .padding(.top, 4)
             }
 
-            // Show grading buttons once writing is completed or revealed
+            // Streamlined Writing Completion: Single full-width Continue + Struggle secondary
             if isWritingCompleted {
-                ReviewControlBar(
-                    card: card,
-                    srsEngine: srsEngine,
-                    suggestedGrade: suggestedGrade,
-                    onGraded: { _ in
-                        advanceToNextCard()
+                VStack(spacing: 8) {
+                    Button {
+                        let grade = suggestedGrade ?? .remembered
+                        gradeCardAndAdvance(card: card, grade: grade)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("Continue")
+                                .font(.headline)
+                                .fontWeight(.bold)
+                            Image(systemName: "arrow.right")
+                                .font(.subheadline)
+                                .fontWeight(.bold)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 54)
+                        .background(Color.tsumugiDustyDenim, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .foregroundStyle(.white)
+                        .shadow(color: Color.tsumugiDustyDenim.opacity(0.3), radius: 6, y: 2)
                     }
-                )
+                    .buttonStyle(.plain)
+
+                    Button {
+                        gradeCardAndAdvance(card: card, grade: .struggled)
+                    } label: {
+                        Text("I actually struggled with this")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 2)
+                }
+                .padding(.horizontal, 20)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
     }
@@ -386,8 +411,17 @@ struct StudySessionView: View {
         }
     }
 
+    // MARK: - SRS Grading & Advancement
+
+    private func gradeCardAndAdvance(card: CharacterCard, grade: SRSGrade) {
+        let log = srsEngine.processReview(for: card, grade: grade)
+        modelContext.insert(log)
+        try? modelContext.save()
+        advanceToNextCard()
+    }
+
     private func advanceToNextCard() {
-        withAnimation(.easeInOut(duration: 0.25)) {
+        withAnimation(.snappy(duration: 0.3)) {
             isCardFlipped = false
             isWritingCompleted = false
             suggestedGrade = nil
