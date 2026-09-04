@@ -1,5 +1,7 @@
 # Tsumugi (つむぎ) — iOS Spatial Japanese Learning
 
+![Tsumugi One-Pager](https://raw.githubusercontent.com/fsudjatmiko/tsumugi-ios/refs/heads/main/Tsumugi-App.jpeg)
+
 An iOS spatial language-learning app for beginner Japanese learners and JLPT N5 candidates, where players trace surface-projected characters, assemble radical puzzles, and practice interactive conversation with an AI tutor to achieve foundational literacy in Hiragana, Katakana, and core Kanji, while managing stroke order accuracy, spaced-repetition retention intervals, and daily study queues.
 
 The app delivers an intuitive, tactile, and conversational learning experience and is built using ARKit, RealityKit, SwiftData, and MLX Swift alongside Apple’s native linguistic frameworks to enable plane-detected spatial writing, persistent study progress, and on-device Japanese dialogue with synchronized Ruby furigana annotations.
